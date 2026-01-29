@@ -1,0 +1,95 @@
+{
+  "dashboard": {
+    "title": "RabbitMQ Events",
+    "tags": ["rabbitmq", "events", "messaging"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Message Rate (Publish)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "rate(rabbitmq_queue_messages_published_total[5m])",
+            "legendFormat": "{{queue}} - Published"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Message Rate (Consume)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "rate(rabbitmq_queue_messages_delivered_total[5m])",
+            "legendFormat": "{{queue}} - Delivered"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Queue Depth",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "rabbitmq_queue_messages",
+            "legendFormat": "{{queue}} - Messages ready"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Connections",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "rabbitmq_connections",
+            "legendFormat": "Connections"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Channels",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 8, "y": 16},
+        "targets": [
+          {
+            "expr": "rabbitmq_channels",
+            "legendFormat": "Channels"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Consumers",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 16, "y": 16},
+        "targets": [
+          {
+            "expr": "rabbitmq_consumers",
+            "legendFormat": "Consumers"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Dead Letter Queue Messages",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 20},
+        "targets": [
+          {
+            "expr": "rabbitmq_queue_messages{queue=~\".*\.dlq\"}",
+            "legendFormat": "{{queue}}"
+          }
+        ]
+      }
+    ],
+    "schemaVersion": 27,
+    "version": 1
+  }
+}

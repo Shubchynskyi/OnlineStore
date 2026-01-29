@@ -1,0 +1,239 @@
+# ==============================================
+# OnlineStore - Git Ignore
+# ==============================================
+
+# ==============================================
+# Environment Variables (SECURITY)
+# ==============================================
+.env
+.env.local
+.env.*.local
+*.env
+
+# ==============================================
+# Java / Maven
+# ==============================================
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# Maven
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Eclipse
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# ==============================================
+# Node.js / npm
+# ==============================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+# Yarn
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# ==============================================
+# Next.js (Store Frontend)
+# ==============================================
+.next/
+build/
+dist/
+
+# Next.js build output
+.vercel
+
+# ==============================================
+# Angular (Admin Panel)
+# ==============================================
+# compiled output
+/admin-panel/dist
+/admin-panel/tmp
+/admin-panel/out-tsc
+/admin-panel/.angular/cache
+
+# ==============================================
+# React Native (Mobile App)
+# ==============================================
+# Expo
+.expo/
+.expo-shared/
+web-build/
+
+# Metro
+.metro-health-check*
+
+# ==============================================
+# Database
+# ==============================================
+*.db
+*.sqlite
+*.sqlite3
+
+# ==============================================
+# Logs
+# ==============================================
+*.log
+logs/
+*.log.*
+
+# ==============================================
+# OS Files
+# ==============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ==============================================
+# Docker
+# ==============================================
+# Don't ignore docker-compose.yml
+# docker-compose.override.yml
+
+# ==============================================
+# Certificates & Keys (SECURITY)
+# ==============================================
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.jks
+*.keystore
+
+# ==============================================
+# Secrets (SECURITY)
+# ==============================================
+secrets/
+*.secret
+*-secret.yaml
+*-secret.yml
+
+# ==============================================
+# Temporary Files
+# ==============================================
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# ==============================================
+# Testing
+# ==============================================
+coverage/
+.nyc_output/
+*.lcov
+
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+
+# ==============================================
+# Build Artifacts
+# ==============================================
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# ==============================================
+# Backup Files
+# ==============================================
+*.bak
+*.backup
+*.old
+
+# ==============================================
+# Application Specific
+# ==============================================
+# MinIO data (if running locally)
+minio-data/
+
+# Uploads
+uploads/
+public/uploads/
+
+# Generated documentation
+docs/generated/
+
+# ==============================================
+# Local Documentation & Notes
+# ==============================================
+docs_local/
+
+# ==============================================
+# AI Assistants Configurations
+# ==============================================
+.aiignore
+.antigravity/
+.claude/
+.cursorrules
+.github/copilot-instructions.md
+.junie/
+.windsurf/
+AGENTS.md
+
+# ==============================================
+# Keep These Files
+# ==============================================
+!.env.example
+!.gitkeep

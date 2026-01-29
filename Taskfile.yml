@@ -1,0 +1,229 @@
+version: '3'
+
+vars:
+  # Cross-platform Maven wrapper command
+  MVN: '{{if eq OS "windows"}}mvnw.cmd{{else}}./mvnw{{end}}'
+  # Cross-platform Open command
+  OPEN: '{{if eq OS "windows"}}start{{else if eq OS "darwin"}}open{{else}}xdg-open{{end}}'
+
+tasks:
+  default:
+    desc: List available commands
+    cmds:
+      - task --list
+
+  # Infrastructure Commands
+  init:
+    desc: Initialize project (copy .env, create directories)
+    cmds:
+      - task: copy-env
+      - cmd: "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force -Path 'infrastructure/docker/prometheus','infrastructure/docker/grafana/dashboards','infrastructure/docker/grafana/datasources' | Out-Null\""
+        platforms: [windows]
+        ignore_error: true # Ignore if already exists
+      - cmd: mkdir -p infrastructure/docker/prometheus infrastructure/docker/grafana/dashboards infrastructure/docker/grafana/datasources
+        platforms: [linux, darwin]
+        ignore_error: true # Ignore if already exists
+      - echo "✅ Project initialized!"
+
+  copy-env:
+    internal: true
+    cmds:
+      - cmd: "powershell -NoProfile -Command \"if (Test-Path .env) { Write-Host '⚠️  .env already exists' } else { Copy-Item -Path .env.example -Destination .env -Force; Write-Host '✅ Created .env file' }\""
+        platforms: [windows]
+      - cmd: 'if [ -f .env ]; then echo "⚠️  .env already exists"; else cp .env.example .env; echo "✅ Created .env file"; fi'
+        platforms: [linux, darwin]
+
+  up:
+    desc: Start all Docker services
+    cmds:
+      - docker compose up -d
+      - echo "✅ Services started!"
+      - task: print-urls
+
+  down:
+    desc: Stop all Docker services
+    cmds:
+      - echo "🛑 Stopping all Docker services..."
+      - docker compose down
+      - echo "✅ Services stopped!"
+
+  restart:
+    desc: Restart all Docker services
+    cmds:
+      - task: down
+      - task: up
+
+  logs:
+    desc: View logs from all services
+    cmds:
+      - docker compose logs -f
+
+  clean:
+    desc: Remove all Docker volumes and data
+    prompt: "⚠️  WARNING: This will delete all Docker volumes and data! Are you sure?"
+    cmds:
+      - docker compose down -v
+      - echo "✅ All data cleaned!"
+
+  # Services
+  gateway-run:
+    desc: Run API Gateway (Spring Cloud Gateway)
+    dir: api-gateway
+    cmds:
+      - '{{.MVN}} spring-boot:run'
+
+  backend-run:
+    desc: Run Backend (Modular Monolith)
+    dir: backend
+    cmds:
+      - '{{.MVN}} spring-boot:run'
+
+  bot-run:
+    desc: Run Telegram Bot
+    dir: telegram-bot
+    cmds:
+      - '{{.MVN}} spring-boot:run'
+
+  admin-run:
+    desc: Run Admin Panel (Angular)
+    dir: admin-panel
+    cmds:
+      - npm install
+      - ng serve --port 4200
+
+  store-run:
+    desc: Run Store Frontend (Next.js)
+    dir: store-frontend
+    cmds:
+      - npm install
+      - npm run dev
+
+  # Monitoring
+  monitoring:
+    desc: Open Grafana dashboards
+    cmds:
+      - '{{.OPEN}} http://localhost:3001'
+
+  tracing:
+    desc: Open Jaeger tracing UI
+    cmds:
+      - '{{.OPEN}} http://localhost:16686'
+
+  prometheus:
+    desc: Open Prometheus UI
+    cmds:
+      - '{{.OPEN}} http://localhost:9090'
+
+  # Database
+  db-migrate:
+    desc: Run database migrations
+    dir: backend
+    cmds:
+      - '{{.MVN}} flyway:migrate'
+
+  db-psql:
+    desc: Connect to PostgreSQL (primary)
+    interactive: true
+    cmds:
+      - docker exec -it store-postgres-primary psql -U store -d online_store
+
+  db-reset:
+    desc: "Reset database (WARNING: deletes all data)"
+    prompt: "⚠️  WARNING: This will delete all database data! Are you sure?"
+    cmds:
+      - docker compose stop postgres-primary postgres-replica
+      - docker volume rm onlinestore_postgres_primary_data onlinestore_postgres_replica_data
+      - docker compose up -d postgres-primary postgres-replica
+      - cmd: sleep 5
+        platforms: [linux, darwin]
+      - cmd: "powershell -NoProfile -Command \"Start-Sleep -Seconds 5\""
+        platforms: [windows]
+        ignore_error: true
+      - task: db-migrate
+      - echo "✅ Database reset complete!"
+
+  # Testing
+  test:
+    desc: Run backend tests (current)
+    cmds:
+      - task: test-backend
+
+  test-backend:
+    desc: Run backend tests
+    dir: backend
+    cmds:
+      - '{{.MVN}} test'
+
+  test-e2e:
+    desc: Run E2E tests
+    dir: store-frontend
+    cmds:
+      - npm run test:e2e
+
+  # Build
+  build:
+    desc: Build all services
+    cmds:
+      - echo "🔨 Building all services..."
+      - task: build-gateway
+      - task: build-backend
+      - task: build-bot
+      - task: build-admin
+      - task: build-store
+      - echo "✅ Build complete!"
+
+  build-gateway:
+    dir: api-gateway
+    cmds: ['{{.MVN}} clean package -DskipTests']
+
+  build-backend:
+    dir: backend
+    cmds: ['{{.MVN}} clean package -DskipTests']
+
+  build-bot:
+    dir: telegram-bot
+    cmds: ['{{.MVN}} clean package -DskipTests']
+
+  build-admin:
+    dir: admin-panel
+    cmds: ['npm run build']
+
+  build-store:
+    dir: store-frontend
+    cmds: ['npm run build']
+
+  docker-build:
+    desc: Build Docker images
+    cmds:
+      - echo "🐳 Building Docker images..."
+      - task: docker-build-gateway
+      - task: docker-build-backend
+      - task: docker-build-bot
+      - echo "✅ Docker images built!"
+
+  docker-build-gateway:
+    dir: api-gateway
+    cmds: ['{{.MVN}} spring-boot:build-image']
+
+  docker-build-backend:
+    dir: backend
+    cmds: ['{{.MVN}} spring-boot:build-image']
+
+  docker-build-bot:
+    dir: telegram-bot
+    cmds: ['{{.MVN}} spring-boot:build-image']
+
+  # Helper Tasks
+  print-urls:
+    internal: true
+    silent: true
+    cmds:
+      - echo "📊 Access points:"
+      - echo "  - Keycloak{{":"}}       http://localhost:8180"
+      - echo "  - RabbitMQ{{":"}}       http://localhost:15672"
+      - echo "  - Elasticsearch{{":"}}  http://localhost:9200"
+      - echo "  - MinIO Console{{":"}}  http://localhost:9001"
+      - echo "  - Grafana{{":"}}        http://localhost:3001"
+      - echo "  - Jaeger{{":"}}         http://localhost:16686"
+      - echo "  - Prometheus{{":"}}     http://localhost:9090"
+      - echo "  - Vault{{":"}}          http://localhost:8200"

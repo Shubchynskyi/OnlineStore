@@ -1,0 +1,87 @@
+{
+  "dashboard": {
+    "title": "Redis Cache",
+    "tags": ["redis", "cache"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Memory Usage",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "redis_memory_used_bytes",
+            "legendFormat": "Used memory"
+          },
+          {
+            "expr": "redis_memory_max_bytes",
+            "legendFormat": "Max memory"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Hit Rate",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m])) * 100",
+            "legendFormat": "Hit rate %"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Commands/sec",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(redis_commands_processed_total[5m])",
+            "legendFormat": "Commands/sec"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Connected Clients",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "redis_connected_clients",
+            "legendFormat": "Clients"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Keys by Database",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "redis_db_keys",
+            "legendFormat": "DB{{db}} - Keys"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Evicted Keys",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+        "targets": [
+          {
+            "expr": "rate(redis_evicted_keys_total[5m])",
+            "legendFormat": "Evicted keys/sec"
+          }
+        ]
+      }
+    ],
+    "schemaVersion": 27,
+    "version": 1
+  }
+}
