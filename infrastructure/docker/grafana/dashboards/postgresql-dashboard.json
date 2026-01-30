@@ -1,75 +1,74 @@
 {
-  "dashboard": {
-    "title": "PostgreSQL Monitoring",
-    "tags": ["postgresql", "database"],
-    "timezone": "browser",
-    "panels": [
-      {
-        "id": 1,
-        "title": "Active Connections",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
-        "targets": [
-          {
-            "expr": "pg_stat_database_numbackends{datname=\"online_store\"}",
-            "legendFormat": "{{role}} - Active connections"
-          }
-        ]
-      },
-      {
-        "id": 2,
-        "title": "Transaction Rate",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
-        "targets": [
-          {
-            "expr": "rate(pg_stat_database_xact_commit{datname=\"online_store\"}[5m])",
-            "legendFormat": "{{role}} - Commits"
-          },
-          {
-            "expr": "rate(pg_stat_database_xact_rollback{datname=\"online_store\"}[5m])",
-            "legendFormat": "{{role}} - Rollbacks"
-          }
-        ]
-      },
-      {
-        "id": 3,
-        "title": "Replication Lag (Primary → Replica)",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
-        "targets": [
-          {
-            "expr": "pg_replication_lag_seconds",
-            "legendFormat": "Replication lag (seconds)"
-          }
-        ]
-      },
-      {
-        "id": 4,
-        "title": "Cache Hit Ratio",
-        "type": "gauge",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-        "targets": [
-          {
-            "expr": "pg_stat_database_blks_hit{datname=\"online_store\"} / (pg_stat_database_blks_hit{datname=\"online_store\"} + pg_stat_database_blks_read{datname=\"online_store\"}) * 100",
-            "legendFormat": "{{role}} - Cache hit %"
-          }
-        ]
-      },
-      {
-        "id": 5,
-        "title": "Database Size",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
-        "targets": [
-          {
-            "expr": "pg_database_size_bytes{datname=\"online_store\"}",
-            "legendFormat": "{{role}} - Size (bytes)"
-          }
-        ]
-      }
-    ],
-    "schemaVersion": 27,
-    "version": 1
-  }
+  "title": "PostgreSQL Monitoring",
+  "tags": ["postgresql", "database"],
+  "timezone": "browser",
+  "uid": "postgresql-dashboard",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Active Connections",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "pg_stat_database_numbackends{datname=\"online_store\"}",
+          "legendFormat": "{{role}} - Active connections"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Transaction Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "rate(pg_stat_database_xact_commit{datname=\"online_store\"}[5m])",
+          "legendFormat": "{{role}} - Commits"
+        },
+        {
+          "expr": "rate(pg_stat_database_xact_rollback{datname=\"online_store\"}[5m])",
+          "legendFormat": "{{role}} - Rollbacks"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Replication Lag (Primary to Replica)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "pg_replication_lag_seconds",
+          "legendFormat": "Replication lag (seconds)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Cache Hit Ratio",
+      "type": "gauge",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "pg_stat_database_blks_hit{datname=\"online_store\"} / (pg_stat_database_blks_hit{datname=\"online_store\"} + pg_stat_database_blks_read{datname=\"online_store\"}) * 100",
+          "legendFormat": "{{role}} - Cache hit %"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Database Size",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [
+        {
+          "expr": "pg_database_size_bytes{datname=\"online_store\"}",
+          "legendFormat": "{{role}} - Size (bytes)"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
 }

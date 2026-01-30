@@ -19,6 +19,11 @@ if [ ! -f "$DATA_DIR/PG_VERSION" ]; then
 
   echo "primary_conninfo = 'host=$PRIMARY_HOST port=$PRIMARY_PORT user=$REPL_USER password=$REPL_PASSWORD application_name=replica1'" >> "$DATA_DIR/postgresql.auto.conf"
   touch "$DATA_DIR/standby.signal"
+
+  # Fix ownership and permissions for postgres user
+  chown -R postgres:postgres "$DATA_DIR"
+  chmod 700 "$DATA_DIR"
 fi
 
-exec postgres -c config_file=/etc/postgresql/postgresql.conf
+# Run postgres as postgres user
+exec gosu postgres postgres -c config_file=/etc/postgresql/postgresql.conf

@@ -1,8 +1,6 @@
-version: '3.9'
-
 services:
   postgres-primary:
-    image: postgres:17
+    image: postgres:17.7
     container_name: store-postgres-primary
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-store}
@@ -19,13 +17,13 @@ services:
       - ./infrastructure/docker/postgres/init:/docker-entrypoint-initdb.d
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-store}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-store} -d ${POSTGRES_DB:-online_store}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   postgres-replica:
-    image: postgres:17
+    image: postgres:17.7
     container_name: store-postgres-replica
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-store}
@@ -45,7 +43,7 @@ services:
         condition: service_healthy
 
   postgres-exporter-primary:
-    image: prometheuscommunity/postgres-exporter:latest
+    image: prometheuscommunity/postgres-exporter:v0.18.1
     container_name: store-postgres-exporter-primary
     environment:
       DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-store}:${POSTGRES_PASSWORD:-store_password}@postgres-primary:5432/${POSTGRES_DB:-online_store}?sslmode=disable"
@@ -54,7 +52,7 @@ services:
         condition: service_healthy
 
   postgres-exporter-replica:
-    image: prometheuscommunity/postgres-exporter:latest
+    image: prometheuscommunity/postgres-exporter:v0.18.1
     container_name: store-postgres-exporter-replica
     environment:
       DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-store}:${POSTGRES_PASSWORD:-store_password}@postgres-replica:5432/${POSTGRES_DB:-online_store}?sslmode=disable"
@@ -79,7 +77,7 @@ services:
       fi"
 
   redis-exporter:
-    image: oliver006/redis_exporter:latest
+    image: oliver006/redis_exporter:v1.80.1
     container_name: store-redis-exporter
     environment:
       REDIS_ADDR: redis:6379
@@ -88,7 +86,7 @@ services:
       - redis
 
   rabbitmq:
-    image: rabbitmq:3.13-management
+    image: rabbitmq:3.13.7-management
     container_name: store-rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-admin}
@@ -104,7 +102,7 @@ services:
       rabbitmq-server"
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
     container_name: store-elasticsearch
     environment:
       - discovery.type=single-node
@@ -117,7 +115,7 @@ services:
       - elasticsearch_data:/usr/share/elasticsearch/data
 
   elasticsearch-exporter:
-    image: prometheuscommunity/elasticsearch-exporter:latest
+    image: prometheuscommunity/elasticsearch-exporter:v1.9.0
     container_name: store-elasticsearch-exporter
     command:
       - "--es.uri=http://elasticsearch:9200"
@@ -125,7 +123,7 @@ services:
       - elasticsearch
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    image: quay.io/keycloak/keycloak:26.5.2
     container_name: store-keycloak
     environment:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
@@ -142,7 +140,7 @@ services:
         condition: service_healthy
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     container_name: store-minio
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
@@ -155,19 +153,21 @@ services:
     command: server /data --console-address ":9001"
 
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/jaeger:2.14.1
     container_name: store-jaeger
-    environment:
-      COLLECTOR_OTLP_ENABLED: true
     ports:
       - "16686:16686"
-      - "14250:14250"
       - "4317:4317"
       - "4318:4318"
-      - "14269:14269"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:16686/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.5.1
     container_name: store-prometheus
     ports:
       - "9090:9090"
@@ -179,12 +179,12 @@ services:
       - "--storage.tsdb.path=/prometheus"
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:12.3.2
     container_name: store-grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      GF_INSTALL_PLUGINS: grafana-piechart-panel,redis-datasource
+      GF_INSTALL_PLUGINS: redis-datasource
     ports:
       - "3001:3000"
     volumes:
@@ -195,7 +195,7 @@ services:
       - prometheus
 
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:3.6.4
     container_name: store-loki
     ports:
       - "3100:3100"
@@ -204,7 +204,7 @@ services:
     command: -config.file=/etc/loki/local-config.yaml
 
   vault:
-    image: hashicorp/vault:latest
+    image: hashicorp/vault:1.21.1
     container_name: store-vault
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_ROOT_TOKEN:-dev-root-token}

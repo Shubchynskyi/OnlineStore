@@ -13,7 +13,7 @@ alerting:
 
 # Load rules once and periodically evaluate them
 rule_files:
-  # - "alert_rules.yml"
+#  - "alert_rules.yml"
 
 # Scrape configurations
 scrape_configs:
@@ -97,9 +97,9 @@ scrape_configs:
         labels:
           service: 'grafana'
 
-  # Jaeger
+  # Jaeger v2 (metrics on 8888)
   - job_name: 'jaeger'
     static_configs:
-      - targets: ['jaeger:14269']
+      - targets: ['jaeger:8888']
         labels:
           service: 'jaeger'

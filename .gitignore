@@ -8,7 +8,7 @@
 .env
 .env.local
 .env.*.local
-*.env
+# *.env - disabled, conflicts with .env.example
 
 # ==============================================
 # Java / Maven

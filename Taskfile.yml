@@ -53,6 +53,25 @@ tasks:
       - task: down
       - task: up
 
+  reload-docker:
+    desc: Reload Docker services (down + up, keeps volumes)
+    cmds:
+      - echo "🔄 Reloading Docker services..."
+      - docker compose down
+      - docker compose up -d
+      - echo "✅ Services reloaded!"
+      - task: print-urls
+
+  reload-docker-v:
+    desc: Reload Docker services with volume reset (down -v + up)
+    prompt: "⚠️  WARNING: This will delete all Docker volumes! Are you sure?"
+    cmds:
+      - echo "🔄 Reloading Docker services (with volume reset)..."
+      - docker compose down -v
+      - docker compose up -d
+      - echo "✅ Services reloaded with fresh volumes!"
+      - task: print-urls
+
   logs:
     desc: View logs from all services
     cmds:
