@@ -1,0 +1,70 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+  filelog:
+    include: [/var/lib/docker/containers/*/*.log]
+    start_at: end
+    include_file_path: true
+    operators:
+      - type: json_parser
+        id: parse_docker
+        parse_from: body
+        timestamp:
+          parse_from: attributes.time
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.999999999Z07:00"
+      - type: move
+        from: attributes.log
+        to: body
+
+processors:
+  batch:
+  resource:
+    attributes:
+      - key: service.namespace
+        value: onlinestore
+        action: upsert
+      - key: deployment.environment
+        value: development
+        action: upsert
+  resource/logs:
+    attributes:
+      - key: service.name
+        value: docker
+        action: insert
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+extensions:
+  health_check:
+  pprof:
+  zpages:
+
+service:
+  telemetry:
+    logs:
+      level: info
+  extensions: [health_check, pprof, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resource, batch]
+      exporters: [otlp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [resource, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp, filelog]
+      processors: [resource, resource/logs, batch]
+      exporters: [loki]
