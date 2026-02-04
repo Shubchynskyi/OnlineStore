@@ -22,6 +22,7 @@
 - [ ] Keycloak 26 (port 8180)
 - [ ] MinIO (ports 9000, 9001 console)
 - [ ] Jaeger (ports 16686 UI, 14250 collector) — Distributed Tracing
+- [ ] OpenTelemetry Collector (ports 4317 gRPC, 4318 HTTP, 8889 metrics) — optional OTLP hub (logs to Loki, traces to Jaeger)
 - [ ] Prometheus (port 9090) — Metrics
 - [ ] Grafana (port 3001) — Dashboards
 - [ ] Loki (port 3100) — Log aggregation
@@ -219,6 +220,8 @@
   - Event flow via RabbitMQ
 - [ ] **Loki** — log aggregation
 - [ ] **Alertmanager** — alerts to Telegram (optional, not included in dev docker-compose)
+
+**Note:** OpenTelemetry Collector and Loki are optional for early development. If you do not ship logs via OTLP or file tailing, you can still inspect logs using `docker logs`.
 
 ### 0.8 Development Tools
 - [ ] Taskfile with commands (see `Taskfile.yml`)

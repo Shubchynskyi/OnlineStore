@@ -24,6 +24,8 @@ docker/
 │       ├── postgresql-dashboard.json
 │       ├── rabbitmq-dashboard.json
 │       └── redis-dashboard.json
+├── otel-collector/
+│   └── config.yml              # OpenTelemetry Collector configuration
 └── README.md
 ```
 
@@ -87,6 +89,24 @@ Four pre-configured dashboards:
    - Connected clients
    - Keys by database
    - Evicted keys
+
+## OpenTelemetry Collector
+
+The collector is configured to:
+
+- Receive OTLP data (gRPC/HTTP) from applications
+- Export traces to Jaeger
+- Export logs to Loki
+- Expose OTLP metrics for Prometheus scraping
+- Tail Docker container logs for development
+
+**Note:** The collector (and Loki) are optional in early development. If you do not ship OTLP data or tail logs, you can still inspect logs with `docker logs`.
+
+### Docker Desktop log path
+
+When using Docker Desktop on Windows, container logs live inside the Linux VM.
+Set `DOCKER_LOGS_PATH` in `.env` to a valid WSL path (for example, `//wsl$/docker-desktop-data/data/docker/containers`)
+so the `filelog` receiver can read container logs. If the path is not set or invalid, Loki will stay empty and the collector may log warnings.
 
 ## Usage
 
@@ -158,4 +178,4 @@ management:
 - Prometheus data is stored in a Docker volume (persistent across restarts)
 - Grafana configurations are auto-loaded on container start
 - To reset all data: `docker compose down -v`
-- Loki is provisioned, but log shipping requires a separate agent (promtail or OpenTelemetry)
+- Loki receives logs via OpenTelemetry Collector (file tail + OTLP). If you are not using the collector, Loki can be disabled.
