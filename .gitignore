@@ -205,6 +205,11 @@ coverage/
 # ==============================================
 # Application Specific
 # ==============================================
+# Local prototype frontends (not versioned yet)
+/admin-panel/
+/store-frontend/
+/mobile-app/
+
 # MinIO data (if running locally)
 minio-data/
 
@@ -226,6 +231,7 @@ docs_local/
 .aiignore
 .antigravity/
 .claude/
+.codex/
 .cursorrules
 .github/copilot-instructions.md
 .junie/

@@ -1,6 +1,6 @@
 {
   "title": "PostgreSQL Monitoring",
-  "tags": ["postgresql", "database"],
+  "tags": ["postgresql", "database", "replication"],
   "timezone": "browser",
   "uid": "postgresql-dashboard",
   "panels": [
@@ -12,7 +12,7 @@
       "targets": [
         {
           "expr": "pg_stat_database_numbackends{datname=\"online_store\"}",
-          "legendFormat": "{{role}} - Active connections"
+          "legendFormat": "{{instance}} - Active connections"
         }
       ]
     },
@@ -24,23 +24,77 @@
       "targets": [
         {
           "expr": "rate(pg_stat_database_xact_commit{datname=\"online_store\"}[5m])",
-          "legendFormat": "{{role}} - Commits"
+          "legendFormat": "{{instance}} - Commits"
         },
         {
           "expr": "rate(pg_stat_database_xact_rollback{datname=\"online_store\"}[5m])",
-          "legendFormat": "{{role}} - Rollbacks"
+          "legendFormat": "{{instance}} - Rollbacks"
         }
       ]
     },
     {
       "id": 3,
-      "title": "Replication Lag (Primary to Replica)",
+      "title": "Replication Lag (seconds)",
       "type": "timeseries",
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 5}
+            ]
+          }
+        }
+      },
       "targets": [
         {
           "expr": "pg_replication_lag_seconds",
-          "legendFormat": "Replication lag (seconds)"
+          "legendFormat": "Replication lag"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Replication Slot Status",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "pg_replication_slots_active",
+          "legendFormat": "{{slot_name}} - Active"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "WAL Senders",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "pg_stat_replication_backend_xid_age",
+          "legendFormat": "WAL Sender {{application_name}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Replication Write Lag (bytes)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 18, "x": 6, "y": 16},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      },
+      "targets": [
+        {
+          "expr": "pg_stat_replication_pg_wal_lsn_diff",
+          "legendFormat": "{{application_name}} - Write lag"
         }
       ]
     },
@@ -48,11 +102,11 @@
       "id": 4,
       "title": "Cache Hit Ratio",
       "type": "gauge",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
       "targets": [
         {
           "expr": "pg_stat_database_blks_hit{datname=\"online_store\"} / (pg_stat_database_blks_hit{datname=\"online_store\"} + pg_stat_database_blks_read{datname=\"online_store\"}) * 100",
-          "legendFormat": "{{role}} - Cache hit %"
+          "legendFormat": "{{instance}} - Cache hit %"
         }
       ]
     },
@@ -60,15 +114,15 @@
       "id": 5,
       "title": "Database Size",
       "type": "timeseries",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
       "targets": [
         {
           "expr": "pg_database_size_bytes{datname=\"online_store\"}",
-          "legendFormat": "{{role}} - Size (bytes)"
+          "legendFormat": "{{instance}} - Size (bytes)"
         }
       ]
     }
   ],
   "schemaVersion": 39,
-  "version": 1
+  "version": 2
 }

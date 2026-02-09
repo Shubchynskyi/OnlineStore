@@ -8,6 +8,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-online_store}
       POSTGRES_REPLICATION_USER: ${POSTGRES_REPLICATION_USER:-replicator}
       POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-replicator_password}
+      POSTGRES_REPLICATION_SLOT: ${POSTGRES_REPLICATION_SLOT:-replica1_slot}
     ports:
       - "5432:5432"
     volumes:
@@ -30,6 +31,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-store_password}
       POSTGRES_REPLICATION_USER: ${POSTGRES_REPLICATION_USER:-replicator}
       POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-replicator_password}
+      POSTGRES_REPLICATION_SLOT: ${POSTGRES_REPLICATION_SLOT:-replica1_slot}
+      POSTGRES_PRIMARY_HOST: postgres-primary
+      POSTGRES_PRIMARY_PORT: 5432
     ports:
       - "5433:5432"
     volumes:
@@ -41,6 +45,12 @@ services:
     depends_on:
       postgres-primary:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-store}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   postgres-exporter-primary:
     image: prometheuscommunity/postgres-exporter:v0.18.1
@@ -58,7 +68,7 @@ services:
       DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-store}:${POSTGRES_PASSWORD:-store_password}@postgres-replica:5432/${POSTGRES_DB:-online_store}?sslmode=disable"
     depends_on:
       postgres-replica:
-        condition: service_started
+        condition: service_healthy
 
   redis:
     image: redis:7.4-alpine
@@ -110,7 +120,6 @@ services:
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
     ports:
       - "9200:9200"
-      - "9300:9300"
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
 

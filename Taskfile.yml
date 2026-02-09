@@ -146,6 +146,33 @@ tasks:
     cmds:
       - docker exec -it store-postgres-primary psql -U store -d online_store
 
+  db-psql-replica:
+    desc: Connect to PostgreSQL (replica)
+    interactive: true
+    cmds:
+      - docker exec -it store-postgres-replica psql -U store -d online_store
+
+  db-replication-status:
+    desc: Check PostgreSQL replication status
+    cmds:
+      - echo "📊 Checking replication status..."
+      - docker exec store-postgres-primary psql -U store -d online_store -c "SELECT application_name, state, sent_lsn, write_lsn, flush_lsn, replay_lsn, pg_wal_lsn_diff(sent_lsn, replay_lsn) AS lag_bytes FROM pg_stat_replication;"
+      - docker exec store-postgres-primary psql -U store -d online_store -c "SELECT slot_name, active, restart_lsn FROM pg_replication_slots;"
+
+  db-replication-test:
+    desc: Run full replication test
+    cmds:
+      - echo "🧪 Running replication test..."
+      - docker exec store-postgres-primary bash -c "
+          TEST_ID=$$(date +%s);
+          psql -U store -d online_store -c \"CREATE TABLE IF NOT EXISTS _replication_test (id BIGINT PRIMARY KEY, created_at TIMESTAMP DEFAULT NOW())\";
+          psql -U store -d online_store -c \"INSERT INTO _replication_test (id) VALUES ($$TEST_ID) ON CONFLICT (id) DO UPDATE SET created_at = NOW()\";
+          sleep 1;
+          echo 'Checking replica...';
+          "
+      - docker exec store-postgres-replica psql -U store -d online_store -c "SELECT * FROM _replication_test ORDER BY id DESC LIMIT 5;"
+      - echo "✅ Replication test complete!"
+
   db-reset:
     desc: "Reset database (WARNING: deletes all data)"
     prompt: "⚠️  WARNING: This will delete all database data! Are you sure?"

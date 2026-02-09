@@ -31,19 +31,19 @@
 - [ ] Create `.env.example` with environment variables
 
 ### 0.2 PostgreSQL Replication Setup
-- [ ] Use `infrastructure/docker/postgres/primary.conf` and `infrastructure/docker/postgres/pg_hba.conf`
-- [ ] Configure `postgresql.conf` for Primary:
+- [x] Use `infrastructure/docker/postgres/primary.conf` and `infrastructure/docker/postgres/pg_hba.conf`
+- [x] Configure `postgresql.conf` for Primary:
   ```
   wal_level = replica
   max_wal_senders = 5
   wal_keep_size = 1GB
   ```
-- [ ] Create replication user
-- [ ] Configure `pg_hba.conf` for replication
-- [ ] If you change `POSTGRES_REPLICATION_USER`, update `pg_hba.conf` accordingly
-- [ ] Replica bootstrap is handled by `infrastructure/docker/postgres/replica-entrypoint.sh`
-- [ ] Configure Replica as standby
-- [ ] Test replication lag
+- [x] Create replication user (via `infrastructure/docker/postgres/init/01-create-replication-user.sh`)
+- [x] Configure `pg_hba.conf` for replication
+- [x] If you change `POSTGRES_REPLICATION_USER`, update `pg_hba.conf` accordingly (documented in pg_hba.conf)
+- [x] Replica bootstrap is handled by `infrastructure/docker/postgres/replica-entrypoint.sh`
+- [x] Configure Replica as standby (with replication slot `replica1_slot`)
+- [x] Test replication lag (use `task db-replication-status` or `task db-replication-test`)
 
 ### 0.3 Keycloak Configuration
 - [ ] Create Realm: `online-store`
