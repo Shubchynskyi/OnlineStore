@@ -133,6 +133,15 @@ tasks:
     cmds:
       - '{{.OPEN}} http://localhost:9090'
 
+  keycloak-export:
+    desc: Export Keycloak realm config to infrastructure/keycloak/realm-export.json
+    cmds:
+      - echo "📦 Exporting Keycloak realm..."
+      - docker exec store-keycloak sh -c "rm -rf /tmp/keycloak-export && mkdir -p /tmp/keycloak-export"
+      - docker exec store-keycloak /opt/keycloak/bin/kc.sh export --optimized --realm online-store --users skip --dir /tmp/keycloak-export
+      - docker cp store-keycloak:/tmp/keycloak-export/online-store-realm.json infrastructure/keycloak/realm-export.json
+      - echo "✅ Realm exported to infrastructure/keycloak/realm-export.json"
+
   # Database
   db-migrate:
     desc: Run database migrations

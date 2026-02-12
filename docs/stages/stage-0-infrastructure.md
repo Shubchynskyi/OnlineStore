@@ -40,14 +40,14 @@
   ```
 - [x] Create replication user (via `infrastructure/docker/postgres/init/01-create-replication-user.sh`)
 - [x] Configure `pg_hba.conf` for replication
-- [x] If you change `POSTGRES_REPLICATION_USER`, update `pg_hba.conf` accordingly (documented in pg_hba.conf)
+- [x] `pg_hba.conf` allows any replication-capable role (`host replication all ...`) for dev convenience
 - [x] Replica bootstrap is handled by `infrastructure/docker/postgres/replica-entrypoint.sh`
 - [x] Configure Replica as standby (with replication slot `replica1_slot`)
 - [x] Test replication lag (use `task db-replication-status` or `task db-replication-test`)
 
 ### 0.3 Keycloak Configuration
-- [ ] Create Realm: `online-store`
-- [ ] Configure Clients:
+- [x] Create Realm: `online-store`
+- [x] Configure Clients:
   | Client ID | Type | Auth Flow |
   |-----------|------|-----------|
   | `store-web` | Public | Authorization Code + PKCE |
@@ -55,15 +55,15 @@
   | `mobile-app` | Public | Authorization Code + PKCE |
   | `backend-service` | Confidential | Client Credentials |
   | `telegram-bot` | Confidential | Client Credentials |
-- [ ] Create Roles:
+- [x] Create Roles:
   - `ROLE_CLIENT` — regular customer
   - `ROLE_MANAGER` — manager (orders, products)
   - `ROLE_ADMIN` — administrator (+ users)
   - `ROLE_SUPER_ADMIN` — super admin (+ settings)
 - [ ] Create test users for each role
-- [ ] Ensure Keycloak database exists (created by init scripts)
-- [ ] Create directory: `infrastructure/keycloak`
-- [ ] Export realm config for reproducibility
+- [x] Ensure Keycloak database exists (created by init scripts)
+- [x] Create directory: `infrastructure/keycloak`
+- [x] Export realm config for reproducibility
 
 ### 0.4 Repository Structure
 - [ ] Initialize monorepo structure:
@@ -266,3 +266,4 @@
 - [ ] Rate limiting works (verify via curl)
 - [ ] Traces are sent to Jaeger
 - [ ] Metrics are exported to Prometheus
+
