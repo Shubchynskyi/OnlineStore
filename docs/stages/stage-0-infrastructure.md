@@ -9,26 +9,26 @@
 ## ✅ Checklist
 
 ### 0.1 Docker Compose Environment
-- [ ] Create `docker-compose.yml` with all services
-- [ ] PostgreSQL 17 Primary (port 5432)
-- [ ] PostgreSQL 17 Replica (port 5433) with streaming replication
-- [ ] PostgreSQL exporter (Prometheus)
-- [ ] Redis 7.4 (port 6379)
-- [ ] Redis exporter (Prometheus)
-- [ ] RabbitMQ 3.13 (ports 5672, 15672 management)
-- [ ] RabbitMQ Prometheus plugin (port 15692)
-- [ ] Elasticsearch 8.x (ports 9200, 9300)
-- [ ] Elasticsearch exporter (Prometheus)
-- [ ] Keycloak 26 (port 8180)
-- [ ] MinIO (ports 9000, 9001 console)
-- [ ] Jaeger (ports 16686 UI, 14250 collector) — Distributed Tracing
-- [ ] OpenTelemetry Collector (ports 4317 gRPC, 4318 HTTP, 8889 metrics) — optional OTLP hub (logs to Loki, traces to Jaeger)
-- [ ] Prometheus (port 9090) — Metrics
-- [ ] Grafana (port 3001) — Dashboards
-- [ ] Loki (port 3100) — Log aggregation
-- [ ] Vault (port 8200, dev mode) — Secrets management (optional for dev)
-- [ ] Configure volumes for persistence
-- [ ] Create `.env.example` with environment variables
+- [x] Create `docker-compose.yml` with all services
+- [x] PostgreSQL 17 Primary (port 5432)
+- [x] PostgreSQL 17 Replica (port 5433) with streaming replication
+- [x] PostgreSQL exporter (Prometheus)
+- [x] Redis 7.4 (port 6379)
+- [x] Redis exporter (Prometheus)
+- [x] RabbitMQ 3.13 (ports 5672, 15672 management)
+- [x] RabbitMQ Prometheus plugin (port 15692)
+- [x] Elasticsearch 8.x (ports 9200, 9300)
+- [x] Elasticsearch exporter (Prometheus)
+- [x] Keycloak 26 (port 8180)
+- [x] MinIO (ports 9000, 9001 console)
+- [x] Jaeger (ports 16686 UI, 14250 collector) — Distributed Tracing
+- [x] OpenTelemetry Collector (ports 14317 gRPC, 14318 HTTP, 18889 metrics in current `.env`) — optional OTLP hub (logs to Loki, traces to Jaeger)
+- [x] Prometheus (port 9090) — Metrics
+- [x] Grafana (port 3001) — Dashboards
+- [x] Loki (port 3100) — Log aggregation
+- [x] Vault (port 8200, dev mode) — Secrets management (optional for dev)
+- [x] Configure volumes for persistence
+- [x] Create `.env.example` with environment variables
 
 ### 0.2 PostgreSQL Replication Setup
 - [x] Use `infrastructure/docker/postgres/primary.conf` and `infrastructure/docker/postgres/pg_hba.conf`
@@ -60,13 +60,13 @@
   - `ROLE_MANAGER` — manager (orders, products)
   - `ROLE_ADMIN` — administrator (+ users)
   - `ROLE_SUPER_ADMIN` — super admin (+ settings)
-- [ ] Create test users for each role
+- [x] Create test users for each role
 - [x] Ensure Keycloak database exists (created by init scripts)
 - [x] Create directory: `infrastructure/keycloak`
 - [x] Export realm config for reproducibility
 
 ### 0.4 Repository Structure
-- [ ] Initialize monorepo structure:
+- [x] Initialize monorepo structure:
   ```
   mkdir -p backend/{common,catalog-module,orders-module,users-module,payments-module,shipping-module,notifications-module,search-module,application}
   mkdir -p telegram-bot
@@ -76,35 +76,31 @@
   mkdir -p infrastructure/{docker,k8s,nginx,keycloak}
   mkdir -p docs/stages
   ```
-- [ ] Configure `.gitignore`
-- [ ] Configure `.editorconfig`
-- [ ] README.md with startup instructions
+- [x] Configure `.gitignore`
+- [x] Configure `.editorconfig`
+- [x] README.md with startup instructions
 
-### 0.5 CI/CD Pipeline (GitHub Actions)
-- [ ] `.github/workflows/backend.yml`:
+### 0.5 CI Pipeline (GitHub Actions)
+- [x] `.github/workflows/backend.yml`:
   - Build & Test on push
   - SonarQube analysis
-  - Docker image build
-- [ ] `.github/workflows/frontend.yml`:
+- [x] `.github/workflows/frontend.yml`:
   - Lint & Test
   - Build
-- [ ] `.github/workflows/deploy.yml`:
-  - Deploy to staging on merge to `develop`
-  - Deploy to production on release tag
 
 ### 0.6 API Gateway Setup
 
 #### Project Creation
-- [ ] Go to https://start.spring.io
-- [ ] Select: Maven, Java 25, Spring Boot 4.0
-- [ ] Add dependencies:
+- [x] Go to https://start.spring.io
+- [x] Select: Maven, Java 25, Spring Boot 4.0
+- [x] Add dependencies:
   - Spring Cloud Gateway
   - Spring Boot Actuator
   - Spring Security OAuth2 Resource Server
   - Spring Data Redis Reactive
   - Resilience4j
   - OpenTelemetry
-- [ ] Generate project in `api-gateway/`
+- [x] Generate project in `api-gateway/`
 
 #### pom.xml (key dependencies)
 ```xml
@@ -133,7 +129,7 @@
 ```
 
 #### application.yml
-- [ ] Configure routes:
+- [x] Configure routes:
   ```yaml
   spring:
     cloud:
@@ -166,12 +162,12 @@
             predicates:
               - Path=/api/admin/**
   ```
-- [ ] Configure CORS
-- [ ] Configure Redis for rate limiting
-- [ ] Configure OAuth2 Resource Server (Keycloak)
+- [x] Configure CORS
+- [x] Configure Redis for rate limiting
+- [x] Configure OAuth2 Resource Server (Keycloak)
 
 #### Security Configuration
-- [ ] Create `SecurityConfig.java`:
+- [x] Create `SecurityConfig.java`:
   ```java
   @Configuration
   @EnableWebFluxSecurity
@@ -192,41 +188,39 @@
   ```
 
 #### JWT Authentication Converter
-- [ ] Create `CustomJwtAuthenticationConverter.java` to extract roles from Keycloak
+- [x] Create `api-gateway/src/main/java/com/onlinestore/apigateway/security/CustomJwtAuthenticationConverter.java` to extract roles from Keycloak
 
 #### Fallback Controller
-- [ ] Create `/fallback` endpoint for Circuit Breaker
+- [x] Create `/fallback` endpoint for Circuit Breaker
 
 #### Testing
-- [ ] Run: `./mvnw spring-boot:run`
-- [ ] Check health: `curl http://localhost:8080/actuator/health`
-- [ ] Test rate limiting (150+ consecutive requests)
+- [x] Run: `./mvnw spring-boot:run`
+- [x] Check health: `curl http://localhost:8080/actuator/health`
+- [x] Test rate limiting (150+ consecutive requests)
 
 ### 0.7 Monitoring Stack Configuration
-- [ ] **Prometheus** — collect metrics from:
+- [x] **Prometheus** — collect metrics from:
   - API Gateway
   - Backend services
   - PostgreSQL exporter
   - Redis exporter
   - RabbitMQ Prometheus plugin
   - Elasticsearch exporter
-- [ ] **Grafana** — create dashboards:
+- [x] **Grafana** — create dashboards:
   - System Overview (CPU, RAM, Disk)
   - API Performance (RPS, latency, errors)
   - Database (queries, connections)
   - Business metrics (orders, revenue)
-- [ ] **Jaeger** — distributed tracing for:
+- [x] **Jaeger** — distributed tracing for:
   - API Gateway → Backend → Database
   - Event flow via RabbitMQ
-- [ ] **Loki** — log aggregation
-- [ ] **Alertmanager** — alerts to Telegram (optional, not included in dev docker-compose)
+- [x] **Loki** — log aggregation
+- [x] **Alertmanager** — alerts to Telegram (optional, not included in dev docker-compose)
 
 **Note:** OpenTelemetry Collector and Loki are optional for early development. If you do not ship logs via OTLP or file tailing, you can still inspect logs using `docker logs`.
 
 ### 0.8 Development Tools
-- [ ] Taskfile with commands (see `Taskfile.yml`)
-- [ ] VS Code workspace settings
-- [ ] IntelliJ IDEA run configurations
+- [x] Taskfile with commands (see `Taskfile.yml`)
 
 ---
 
@@ -245,25 +239,24 @@
 ## ✅ Definition of Done
 
 **Basic Infrastructure:**
-- [ ] `docker compose up` starts all services without errors
-- [ ] Keycloak is available at http://localhost:8180
-- [ ] Able to log in with a test user
-- [ ] PostgreSQL replication is working (check via `pg_stat_replication`)
-- [ ] RabbitMQ management UI is available at http://localhost:15672
-- [ ] Elasticsearch responds at http://localhost:9200
-- [ ] MinIO console is available at http://localhost:9001
+- [x] `docker compose up` starts all services without errors
+- [x] Keycloak is available at http://localhost:8180
+- [x] Able to log in with a test user
+- [x] PostgreSQL replication is working (check via `pg_stat_replication`)
+- [x] RabbitMQ management UI is available at http://localhost:15672
+- [x] Elasticsearch responds at http://localhost:9200
+- [x] MinIO console is available at http://localhost:9001
 
 **Monitoring Stack:**
-- [ ] Jaeger UI is available at http://localhost:16686
-- [ ] Prometheus UI is available at http://localhost:9090
-- [ ] Grafana is available at http://localhost:3001 (from .env)
-- [ ] Loki is available on :3100 (log shipping requires a separate agent)
-- [ ] Vault UI is available at http://localhost:8200 (dev mode)
+- [x] Jaeger UI is available at http://localhost:16686
+- [x] Prometheus UI is available at http://localhost:9090
+- [x] Grafana is available at http://localhost:3001 (from .env)
+- [x] Loki is available on :3100 (log shipping requires a separate agent)
+- [x] Vault UI is available at http://localhost:8200 (dev mode)
 
 **API Gateway:**
-- [ ] API Gateway starts on port :8080
-- [ ] JWT validation with Keycloak works
-- [ ] Rate limiting works (verify via curl)
-- [ ] Traces are sent to Jaeger
-- [ ] Metrics are exported to Prometheus
-
+- [x] API Gateway starts on port :8080
+- [x] JWT validation with Keycloak works
+- [x] Rate limiting works (verify via curl)
+- [x] Traces are sent to Jaeger
+- [x] Metrics are exported to Prometheus

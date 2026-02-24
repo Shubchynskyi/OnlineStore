@@ -21,6 +21,13 @@
   - `store.com` → store-frontend
   - `admin.store.com` → admin-panel
 
+### CI/CD Release Pipeline
+- [ ] Build Docker images for deployable services (`api-gateway`, `backend`, `telegram-bot`, `store-frontend`, `admin-panel`)
+- [ ] Push images to container registry (GHCR/Docker Hub/private registry)
+- [ ] Tag images by commit SHA and release tag
+- [ ] Deploy to staging on merge to `develop`
+- [ ] Deploy to production on release tag
+
 ---
 
 ## ✅ Monitoring

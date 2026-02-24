@@ -1,0 +1,114 @@
+name: Backend CI
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-sonarqube:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_PROJECT_KEY_PREFIX: ${{ secrets.SONAR_PROJECT_KEY_PREFIX }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Run Maven tests for available services
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          services=(backend api-gateway telegram-bot)
+          ran_any=false
+
+          for service in "${services[@]}"; do
+            if [[ -f "${service}/pom.xml" ]]; then
+              ran_any=true
+              echo "Running tests in ${service}"
+              pushd "${service}" >/dev/null
+
+              if [[ -f "mvnw" ]]; then
+                chmod +x mvnw
+                ./mvnw -B test
+              else
+                mvn -B test
+              fi
+
+              popd >/dev/null
+            else
+              echo "Skipping ${service} (pom.xml not found)"
+            fi
+          done
+
+          if [[ "${ran_any}" == "false" ]]; then
+            echo "No Maven modules found for testing yet."
+          fi
+
+      - name: Run SonarQube analysis for available services
+        if: ${{ env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          services=(backend api-gateway telegram-bot)
+          repo_slug="${GITHUB_REPOSITORY//\//_}"
+          ran_any=false
+
+          for service in "${services[@]}"; do
+            if [[ -f "${service}/pom.xml" ]]; then
+              ran_any=true
+
+              if [[ -n "${SONAR_PROJECT_KEY_PREFIX:-}" ]]; then
+                project_key="${SONAR_PROJECT_KEY_PREFIX}-${service}"
+              else
+                project_key="${repo_slug}-${service}"
+              fi
+
+              echo "Running SonarQube analysis in ${service} (projectKey=${project_key})"
+              pushd "${service}" >/dev/null
+
+              if [[ -f "mvnw" ]]; then
+                chmod +x mvnw
+                ./mvnw -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                  -Dsonar.host.url="${SONAR_HOST_URL}" \
+                  -Dsonar.token="${SONAR_TOKEN}" \
+                  -Dsonar.projectKey="${project_key}" \
+                  -Dsonar.qualitygate.wait=true
+              else
+                mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                  -Dsonar.host.url="${SONAR_HOST_URL}" \
+                  -Dsonar.token="${SONAR_TOKEN}" \
+                  -Dsonar.projectKey="${project_key}" \
+                  -Dsonar.qualitygate.wait=true
+              fi
+
+              popd >/dev/null
+            else
+              echo "Skipping SonarQube for ${service} (pom.xml not found)"
+            fi
+          done
+
+          if [[ "${ran_any}" == "false" ]]; then
+            echo "No Maven modules found for SonarQube analysis yet."
+          fi
+
+      - name: SonarQube is not configured
+        if: ${{ env.SONAR_TOKEN == '' || env.SONAR_HOST_URL == '' }}
+        run: |
+          echo "Skipping SonarQube analysis."
+          echo "Set SONAR_TOKEN and SONAR_HOST_URL in repository secrets to enable it."

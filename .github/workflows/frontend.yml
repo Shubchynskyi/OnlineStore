@@ -1,0 +1,74 @@
+name: Frontend CI
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: store-frontend
+            test_mode: default
+          - app: admin-panel
+            test_mode: angular
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            store-frontend/package-lock.json
+            admin-panel/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint when script exists
+        shell: bash
+        run: |
+          if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.lint ? 0 : 1)"; then
+            npm run lint
+          else
+            echo "Skipping lint in ${PWD}: script 'lint' is not defined."
+          fi
+
+      - name: Run tests when script exists
+        shell: bash
+        run: |
+          if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.test ? 0 : 1)"; then
+            if [[ "${{ matrix.test_mode }}" == "angular" ]]; then
+              npm run test -- --watch=false --browsers=ChromeHeadless
+            else
+              npm run test
+            fi
+          else
+            echo "Skipping tests in ${PWD}: script 'test' is not defined."
+          fi
+
+      - name: Run build
+        shell: bash
+        run: |
+          if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)"; then
+            npm run build
+          else
+            echo "Error: script 'build' is required in ${PWD}."
+            exit 1
+          fi

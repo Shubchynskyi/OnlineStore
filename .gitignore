@@ -237,6 +237,9 @@ docs_local/
 .junie/
 .windsurf/
 AGENTS.md
+# Ignore internal agent and prompt folders that must not be committed
+.github/agents/
+.github/prompts/
 
 # ==============================================
 # Keep These Files

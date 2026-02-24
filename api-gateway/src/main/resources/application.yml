@@ -1,0 +1,99 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/online-store/protocol/openid-connect/certs}
+  cloud:
+    gateway:
+      default-filters:
+        - PreserveHostHeader
+      routes:
+        - id: public-api
+          uri: ${BACKEND_BASE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/public/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@principalOrIpKeyResolver}"
+                redis-rate-limiter.replenishRate: ${RATE_LIMIT_REPLENISH_RATE:100}
+                redis-rate-limiter.burstCapacity: ${RATE_LIMIT_BURST_CAPACITY:200}
+            - name: CircuitBreaker
+              args:
+                name: backendCircuitBreaker
+                fallbackUri: forward:/fallback/backend
+        - id: api
+          uri: ${BACKEND_BASE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@principalOrIpKeyResolver}"
+                redis-rate-limiter.replenishRate: ${RATE_LIMIT_REPLENISH_RATE:100}
+                redis-rate-limiter.burstCapacity: ${RATE_LIMIT_BURST_CAPACITY:200}
+            - name: CircuitBreaker
+              args:
+                name: backendCircuitBreaker
+                fallbackUri: forward:/fallback/backend
+        - id: admin-api
+          uri: ${BACKEND_BASE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/admin/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@principalOrIpKeyResolver}"
+                redis-rate-limiter.replenishRate: ${RATE_LIMIT_REPLENISH_RATE:100}
+                redis-rate-limiter.burstCapacity: ${RATE_LIMIT_BURST_CAPACITY:200}
+            - name: CircuitBreaker
+              args:
+                name: backendCircuitBreaker
+                fallbackUri: forward:/fallback/backend
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4317}
+      protocol: grpc
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      backendCircuitBreaker:
+        register-health-indicator: true
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 5
+  timelimiter:
+    instances:
+      backendCircuitBreaker:
+        timeout-duration: 5s
+
+logging:
+  level:
+    org.springframework.cloud.gateway: INFO
