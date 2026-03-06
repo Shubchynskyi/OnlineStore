@@ -112,7 +112,7 @@ services:
       rabbitmq-server"
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.2.3
     container_name: store-elasticsearch
     environment:
       - discovery.type=single-node
@@ -233,6 +233,7 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.104.0
     container_name: store-otel-collector
+    user: "0:0"
     command: ["--config=/etc/otel-collector/config.yml"]
     ports:
       - "${OTEL_COLLECTOR_OTLP_GRPC_PORT:-4317}:4317"

@@ -209,6 +209,7 @@ coverage/
 /admin-panel/
 /store-frontend/
 /mobile-app/
+/scripts/
 
 # MinIO data (if running locally)
 minio-data/
@@ -246,3 +247,8 @@ AGENTS.md
 # ==============================================
 !.env.example
 !.gitkeep
+
+# agent-orchestrator managed ignores
+agent-orchestrator/
+TASK.md
+.claude/agents/
