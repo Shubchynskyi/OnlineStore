@@ -166,6 +166,7 @@ backend/
   - Specification API for filtering
   - `@EntityGraph` for loading optimization
 - [ ] **Service**: ProductService, CategoryService
+- [ ] **Authorization**: admin mutations (`create/update`) must be enforced at service layer (`@PreAuthorize`), not only at controller routes
 - [ ] **Caching**: Redis for catalog
   ```java
   @Cacheable(value = "products", key = "#id")
@@ -184,8 +185,8 @@ backend/
   |--------|----------|-------------|
   | GET | `/api/v1/public/catalog/categories` | Category tree |
   | GET | `/api/v1/public/catalog/categories/{slug}` | Category + products |
-  | GET | `/api/v1/public/products` | List with filters |
-  | GET | `/api/v1/public/products/{slug}` | Product details |
+  | GET | `/api/v1/public/catalog/products` | List with filters |
+  | GET | `/api/v1/public/catalog/products/{slug}` | Product details |
 
 ---
 
@@ -218,6 +219,7 @@ backend/
   - `getCart()`, `addItem()`, `updateItemQuantity()`, `removeItem()`, `clearCart()`
   - `updateStatus()` — via State Machine
   - `cancelOrder()`
+- [ ] **Authorization**: order status transition operations must enforce admin role checks at service layer
 - [ ] **Events**: `OrderCreatedEvent`, `OrderStatusChangedEvent`
 - [ ] **Outbox**: publish order events via outbox table
 - [ ] **API**: `/api/v1/orders`
@@ -240,14 +242,14 @@ Payment flow, webhooks, and status model: [../architecture/payments-integration.
       PaymentResult createPayment(PaymentRequest request);
       PaymentResult confirmPayment(String paymentId);
       RefundResult refund(String paymentId, Money amount);
-      boolean verifyWebhook(String payload, String signature);
+      boolean verifyWebhook(String payload, String signature, String timestamp);
   }
   ```
 - [ ] **Implementations**:
-  - [ ] `CardPaymentProvider`
+  - [x] `CardPaymentProvider`
   - [ ] `PayPalPaymentProvider`
-  - [ ] `BankTransferPaymentProvider`
-  - [ ] `CryptoPaymentProvider` (optional)
+  - [x] `BankTransferPaymentProvider`
+  - [x] `CryptoPaymentProvider` (optional)
 - [ ] **PaymentProviderRegistry**:
   ```java
   @Component
@@ -260,7 +262,10 @@ Payment flow, webhooks, and status model: [../architecture/payments-integration.
   ```
 - [ ] **Entities**: `Payment`, `PaymentStatus`, `PaymentProviderConfig`
 - [ ] **Webhook Controller**: `/api/webhooks/payments/{provider}`
+- [ ] **Create Payment Contract**: `POST /api/v1/payments` requires `orderId`, `providerCode`, `amount`, `currency`, `returnUrl`, and `idempotencyKey`
 - [ ] **Idempotency**: persist idempotency keys for create/confirm/refund
+- [ ] **Webhook Security**: require signature + `X-Webhook-Timestamp` freshness window, and persist replay guard with unique `(provider_code, event_id)` constraint
+- [ ] **Payment Integrity**: server-side order ownership and amount/currency validation before provider call
 - [ ] **Outbox**: publish payment events via outbox table
 
 ### 3.3 Shipping Module (Plugin Architecture)
@@ -284,6 +289,7 @@ Payment flow, webhooks, and status model: [../architecture/payments-integration.
 - [ ] **ShippingProviderRegistry** — similar to PaymentProviderRegistry
 - [ ] **Entities**: `Shipment`, `ShipmentStatus`, `TrackingEvent`
 - [ ] **Admin Configuration**: enable/disable providers via UI
+- [ ] **Access Control**: shipping operations must enforce order ownership at service layer
 
 ---
 

@@ -238,7 +238,7 @@ docs_local/
 .junie/
 .windsurf/
 AGENTS.md
-# Ignore internal agent and prompt folders that must not be committed
+# Project-local assistant and prompt folders (keep out of git)
 .github/agents/
 .github/prompts/
 
@@ -248,7 +248,10 @@ AGENTS.md
 !.env.example
 !.gitkeep
 
-# agent-orchestrator managed ignores
-agent-orchestrator/
+# Octopus-agent-orchestrator managed ignores
 TASK.md
 .claude/agents/
+Octopus-agent-orchestrator/
+.qwen/
+/CLAUDE.md
+/GEMINI.md
