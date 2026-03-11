@@ -50,17 +50,18 @@
 - Backend calls provider API, then waits for webhook to finalize status.
 
 ## Payment status model
-| Status | Meaning | Typical next |
+| Status | Meaning | Allowed next |
 |--------|---------|--------------|
-| PENDING | Payment created, awaiting user action | REQUIRES_ACTION, PAID, FAILED |
-| REQUIRES_ACTION | 3DS or redirect required | PAID, FAILED |
-| AUTHORIZED | Funds authorized, not captured | PAID, FAILED, CANCELLED |
+| PENDING | Payment created, awaiting user action | REQUIRES_ACTION, AUTHORIZED, PAID, FAILED |
+| REQUIRES_ACTION | 3DS or redirect required | AUTHORIZED, PAID, FAILED |
+| AUTHORIZED | Funds authorized, not captured | PAID, FAILED |
 | PAID | Completed successfully | REFUNDED |
-| FAILED | Provider rejected or error | PENDING (retry) |
-| CANCELLED | User canceled or expired | PENDING (retry) |
-| REFUNDED | Fully refunded | - |
+| FAILED | Provider rejected or error (terminal) | — |
+| REFUNDED | Fully refunded (terminal) | — |
 
-Order status changes only after `Payment` reaches `PAID` or `FAILED`.
+Transitions are monotonic and enforced by `PaymentStatus.validateTransition()`.
+Invalid transitions throw `INVALID_PAYMENT_TRANSITION`.
+To retry after FAILED, create a new Payment record.
 
 ## Payment data model (minimal)
 - `id`, `orderId`, `providerCode`, `providerPaymentId`

@@ -189,12 +189,7 @@ public class PaymentService {
             paymentRepository.save(payment);
             return;
         }
-        if (isTerminal(previousStatus)) {
-            throw new BusinessException(
-                "INVALID_PAYMENT_TRANSITION",
-                "Cannot change terminal payment status from " + previousStatus + " to " + newStatus
-            );
-        }
+        previousStatus.validateTransition(newStatus);
 
         payment.setStatus(newStatus);
         var saved = paymentRepository.save(payment);
@@ -434,10 +429,6 @@ public class PaymentService {
         }
         String normalized = rawValue.toLowerCase(Locale.ROOT);
         return markers.stream().anyMatch(normalized::contains);
-    }
-
-    private boolean isTerminal(PaymentStatus status) {
-        return status == PaymentStatus.REFUNDED || status == PaymentStatus.FAILED;
     }
 
     private record WebhookPayload(String providerPaymentId, String status, String eventId) {

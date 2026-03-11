@@ -431,6 +431,109 @@ class PaymentServiceTest {
         verify(provider, never()).createPayment(any());
     }
 
+    @Test
+    void updatePaymentStatusShouldRejectPaidToFailed() {
+        var payment = new Payment();
+        payment.setId(500L);
+        payment.setStatus(PaymentStatus.PAID);
+
+        when(paymentRepository.findById(500L)).thenReturn(Optional.of(payment));
+
+        var ex = assertThrows(BusinessException.class,
+            () -> paymentService.updatePaymentStatus(500L, PaymentStatus.FAILED));
+        assertEquals("INVALID_PAYMENT_TRANSITION", ex.getErrorCode());
+        verify(paymentRepository, never()).save(any());
+        verifyNoInteractions(rabbitTemplate);
+    }
+
+    @Test
+    void updatePaymentStatusShouldRejectAuthorizedToPending() {
+        var payment = new Payment();
+        payment.setId(501L);
+        payment.setStatus(PaymentStatus.AUTHORIZED);
+
+        when(paymentRepository.findById(501L)).thenReturn(Optional.of(payment));
+
+        assertThrows(BusinessException.class,
+            () -> paymentService.updatePaymentStatus(501L, PaymentStatus.PENDING));
+        verify(paymentRepository, never()).save(any());
+    }
+
+    @Test
+    void updatePaymentStatusShouldAllowPaidToRefunded() {
+        var payment = new Payment();
+        payment.setId(502L);
+        payment.setOrderId(10L);
+        payment.setAmount(new BigDecimal("20.00"));
+        payment.setCurrency("EUR");
+        payment.setStatus(PaymentStatus.PAID);
+        payment.setMetadata(new HashMap<>());
+
+        when(paymentRepository.findById(502L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        paymentService.updatePaymentStatus(502L, PaymentStatus.REFUNDED);
+
+        assertEquals(PaymentStatus.REFUNDED, payment.getStatus());
+    }
+
+    @Test
+    void updatePaymentStatusShouldAllowPendingToFailed() {
+        var payment = new Payment();
+        payment.setId(503L);
+        payment.setOrderId(11L);
+        payment.setAmount(new BigDecimal("10.00"));
+        payment.setCurrency("EUR");
+        payment.setStatus(PaymentStatus.PENDING);
+        payment.setMetadata(new HashMap<>());
+
+        when(paymentRepository.findById(503L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        paymentService.updatePaymentStatus(503L, PaymentStatus.FAILED);
+
+        assertEquals(PaymentStatus.FAILED, payment.getStatus());
+    }
+
+    @Test
+    void updatePaymentStatusShouldNoOpOnSameStatus() {
+        var payment = new Payment();
+        payment.setId(504L);
+        payment.setStatus(PaymentStatus.AUTHORIZED);
+
+        when(paymentRepository.findById(504L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        paymentService.updatePaymentStatus(504L, PaymentStatus.AUTHORIZED);
+
+        assertEquals(PaymentStatus.AUTHORIZED, payment.getStatus());
+        verifyNoInteractions(rabbitTemplate);
+    }
+
+    @Test
+    void webhookShouldRejectPaidToFailedTransition() {
+        var provider = mock(PaymentProvider.class);
+        var payment = new Payment();
+        payment.setId(505L);
+        payment.setOrderId(200L);
+        payment.setAmount(new BigDecimal("50.00"));
+        payment.setCurrency("EUR");
+        payment.setProviderPaymentId("paypal-payment-505");
+        payment.setStatus(PaymentStatus.PAID);
+        payment.setMetadata(new HashMap<>());
+
+        when(providerRegistry.getProviderForWebhook("paypal")).thenReturn(provider);
+        when(provider.verifyWebhook(any(), any(), any())).thenReturn(true);
+        when(paymentRepository.findByProviderCodeAndProviderPaymentId("paypal", "paypal-payment-505"))
+            .thenReturn(Optional.of(payment));
+        when(webhookEventRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        String payload = "{\"providerPaymentId\":\"paypal-payment-505\",\"status\":\"FAILED\",\"eventId\":\"evt-505\"}";
+        assertThrows(BusinessException.class,
+            () -> paymentService.handleWebhook("paypal", payload, "signature", currentTimestamp()));
+        verifyNoInteractions(rabbitTemplate);
+    }
+
     private String currentTimestamp() {
         return String.valueOf(Instant.now().getEpochSecond());
     }
