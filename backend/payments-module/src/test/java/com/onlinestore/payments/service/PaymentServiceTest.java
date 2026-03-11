@@ -3,7 +3,10 @@ package com.onlinestore.payments.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.only;
@@ -22,6 +25,7 @@ import com.onlinestore.payments.entity.PaymentWebhookEvent;
 import com.onlinestore.payments.entity.PaymentStatus;
 import com.onlinestore.payments.mapper.PaymentMapper;
 import com.onlinestore.payments.provider.PaymentProvider;
+import com.onlinestore.payments.provider.PaymentResult;
 import com.onlinestore.payments.registry.PaymentProviderRegistry;
 import com.onlinestore.payments.repository.PaymentRepository;
 import com.onlinestore.payments.repository.PaymentWebhookEventRepository;
@@ -29,6 +33,7 @@ import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.Optional;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +43,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
@@ -53,11 +60,19 @@ class PaymentServiceTest {
     private PaymentProviderRegistry providerRegistry;
     @Mock
     private RabbitTemplate rabbitTemplate;
+    @Mock
+    private TransactionTemplate transactionTemplate;
 
     private PaymentService paymentService;
 
+    @SuppressWarnings("unchecked")
     @BeforeEach
     void setUp() {
+        // Make transactionTemplate transparent: execute callback synchronously without real TX
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            var callback = (TransactionCallback<?>) invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
         paymentService = new PaymentService(
             paymentRepository,
             webhookEventRepository,
@@ -65,7 +80,8 @@ class PaymentServiceTest {
             providerRegistry,
             rabbitTemplate,
             new PaymentMapper(),
-            new ObjectMapper()
+            new ObjectMapper(),
+            transactionTemplate
         );
     }
 
@@ -532,6 +548,81 @@ class PaymentServiceTest {
         assertThrows(BusinessException.class,
             () -> paymentService.handleWebhook("paypal", payload, "signature", currentTimestamp()));
         verifyNoInteractions(rabbitTemplate);
+    }
+
+    @Test
+    void initiatePaymentShouldMarkPaymentFailedWhenProviderThrows() {
+        var provider = mock(PaymentProvider.class);
+        var request = new InitiatePaymentRequest(
+            10L, "paypal", new BigDecimal("19.99"), "EUR", "https://example.com/return", "idem-400"
+        );
+        var order = new OrderAccessView(10L, 77L, new BigDecimal("19.99"), "EUR");
+
+        var savedPayment = new Payment();
+        savedPayment.setOrderId(10L);
+        savedPayment.setProviderCode("paypal");
+        savedPayment.setStatus(PaymentStatus.PENDING);
+        savedPayment.setAmount(new BigDecimal("19.99"));
+        savedPayment.setCurrency("EUR");
+        savedPayment.setMetadata(new HashMap<>());
+
+        when(orderAccessGateway.findByIdAndUserId(10L, 77L)).thenReturn(Optional.of(order));
+        when(paymentRepository.findByIdempotencyKey("idem-400")).thenReturn(Optional.empty());
+        when(paymentRepository.findFirstByOrderIdAndProviderCodeAndStatusInOrderByCreatedAtDesc(
+            eq(10L), eq("paypal"), any()
+        )).thenReturn(Optional.empty());
+        when(providerRegistry.getProvider("paypal")).thenReturn(provider);
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
+            Payment p = inv.getArgument(0);
+            if (p.getId() == null) {
+                p.setId(400L);
+            }
+            return p;
+        });
+        when(paymentRepository.findById(400L)).thenReturn(Optional.of(savedPayment));
+        when(provider.createPayment(any())).thenThrow(new RuntimeException("PSP unavailable"));
+
+        assertThrows(RuntimeException.class, () -> paymentService.initiatePayment(77L, request));
+
+        assertEquals(PaymentStatus.FAILED, savedPayment.getStatus());
+    }
+
+    @Test
+    void initiatePaymentShouldCallProviderAfterPendingRecordCommit() {
+        var provider = mock(PaymentProvider.class);
+        var request = new InitiatePaymentRequest(
+            10L, "paypal", new BigDecimal("19.99"), "EUR", "https://example.com/return", "idem-401"
+        );
+        var order = new OrderAccessView(10L, 77L, new BigDecimal("19.99"), "EUR");
+        var providerResult = new PaymentResult(
+            "psp-payment-401", PaymentResult.PaymentResultStatus.REQUIRES_ACTION, "https://pay.example.com/401", null, null
+        );
+
+        when(orderAccessGateway.findByIdAndUserId(10L, 77L)).thenReturn(Optional.of(order));
+        when(paymentRepository.findByIdempotencyKey("idem-401")).thenReturn(Optional.empty());
+        when(paymentRepository.findFirstByOrderIdAndProviderCodeAndStatusInOrderByCreatedAtDesc(
+            eq(10L), eq("paypal"), any()
+        )).thenReturn(Optional.empty());
+        when(providerRegistry.getProvider("paypal")).thenReturn(provider);
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
+            Payment p = inv.getArgument(0);
+            if (p.getId() == null) {
+                p.setId(401L);
+            }
+            return p;
+        });
+        when(provider.createPayment(any())).thenReturn(providerResult);
+
+        var dto = paymentService.initiatePayment(77L, request);
+
+        assertEquals(PaymentStatus.REQUIRES_ACTION, dto.status());
+        assertEquals("https://pay.example.com/401", dto.nextActionUrl());
+
+        // Phase 1 save (PENDING, no id yet) must happen before PSP call; Phase 3 save after
+        var inOrder = inOrder(paymentRepository, provider);
+        inOrder.verify(paymentRepository).save(argThat(p -> p.getId() == null && p.getStatus() == PaymentStatus.PENDING));
+        inOrder.verify(provider).createPayment(any());
+        inOrder.verify(paymentRepository).save(argThat(p -> Objects.equals(p.getId(), 401L)));
     }
 
     private String currentTimestamp() {

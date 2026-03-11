@@ -12,6 +12,7 @@ import com.onlinestore.payments.entity.Payment;
 import com.onlinestore.payments.entity.PaymentWebhookEvent;
 import com.onlinestore.payments.entity.PaymentStatus;
 import com.onlinestore.payments.mapper.PaymentMapper;
+import com.onlinestore.payments.provider.PaymentProvider;
 import com.onlinestore.payments.provider.PaymentRequest;
 import com.onlinestore.payments.provider.PaymentResult;
 import com.onlinestore.payments.registry.PaymentProviderRegistry;
@@ -25,7 +26,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,11 +33,12 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class PaymentService {
 
@@ -63,83 +64,89 @@ public class PaymentService {
     private final RabbitTemplate rabbitTemplate;
     private final PaymentMapper paymentMapper;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate transactionTemplate;
+
     @Value("${onlinestore.payments.webhook.max-age-seconds:300}")
     private long webhookMaxAgeSeconds = 300;
 
-    @Transactional
+    public PaymentService(
+        PaymentRepository paymentRepository,
+        PaymentWebhookEventRepository webhookEventRepository,
+        OrderAccessGateway orderAccessGateway,
+        PaymentProviderRegistry providerRegistry,
+        RabbitTemplate rabbitTemplate,
+        PaymentMapper paymentMapper,
+        ObjectMapper objectMapper,
+        TransactionTemplate transactionTemplate
+    ) {
+        this.paymentRepository = paymentRepository;
+        this.webhookEventRepository = webhookEventRepository;
+        this.orderAccessGateway = orderAccessGateway;
+        this.providerRegistry = providerRegistry;
+        this.rabbitTemplate = rabbitTemplate;
+        this.paymentMapper = paymentMapper;
+        this.objectMapper = objectMapper;
+        this.transactionTemplate = transactionTemplate;
+    }
+
+    /**
+     * Initiates a payment using a three-phase durable flow to prevent holding a DB connection
+     * during external PSP I/O and to eliminate the risk of a duplicate charge caused by a
+     * DB rollback after a successful PSP response.
+     *
+     * Phase 1 (TX): Validate order, check idempotency, persist PENDING record — then commit.
+     * Phase 2 (no TX): Call external PSP. On failure, mark the record FAILED (Phase 2b TX).
+     * Phase 3 (TX): Apply PSP result to the committed record — then commit.
+     */
     public PaymentDTO initiatePayment(Long userId, InitiatePaymentRequest request) {
         String providerCode = normalizeProviderCode(request.providerCode());
         String idempotencyKey = normalizeIdempotencyKey(request.idempotencyKey());
 
-        var order = orderAccessGateway.findByIdAndUserId(request.orderId(), userId)
-            .orElseThrow(() -> new BusinessException(
-                "ACCESS_DENIED",
-                "Order is not available for current user"
-            ));
-        validateRequestedAmount(request, order);
-
-        var existingByKey = paymentRepository.findByIdempotencyKey(idempotencyKey);
-        if (existingByKey.isPresent()) {
-            var existingPayment = existingByKey.get();
-            validateIdempotencyOwnership(existingPayment, order.id(), providerCode);
-            log.info("Idempotent payment replay by key: paymentId={}, orderId={}, provider={}, userId={}",
-                existingPayment.getId(),
-                order.id(),
-                providerCode,
-                userId);
-            return paymentMapper.toDto(existingPayment, readNextActionUrl(existingPayment));
+        // Phase 1: Validate, check idempotency, persist PENDING record. Commits before PSP call.
+        var initResult = transactionTemplate.execute(
+            status -> preparePaymentRecord(userId, providerCode, idempotencyKey, request)
+        );
+        Objects.requireNonNull(initResult, "Payment initiation produced null result");
+        if (initResult.isEarlyReturn()) {
+            return initResult.dto();
         }
 
-        var existingActivePayment = findActivePayment(order.id(), providerCode);
-        if (existingActivePayment.isPresent()) {
-            var payment = existingActivePayment.get();
-            log.info("Idempotent payment replay by active payment: paymentId={}, orderId={}, provider={}, userId={}",
-                payment.getId(),
-                order.id(),
-                providerCode,
-                userId);
-            return paymentMapper.toDto(payment, readNextActionUrl(payment));
-        }
+        Payment pending = initResult.payment();
+        var provider = initResult.provider();
 
-        var provider = providerRegistry.getProvider(providerCode);
-
-        var payment = new Payment();
-        payment.setOrderId(request.orderId());
-        payment.setProviderCode(providerCode);
-        payment.setAmount(order.totalAmount());
-        payment.setCurrency(order.totalCurrency());
-        payment.setIdempotencyKey(idempotencyKey);
-        payment.setStatus(PaymentStatus.PENDING);
-        payment.setMetadata(new HashMap<>(Map.of(METADATA_INITIATED_BY_USER_ID, userId)));
-
-        Payment saved;
+        // Phase 2: External PSP call — intentionally outside any DB transaction.
+        // If the PSP call fails, the PENDING record is marked FAILED so it is not left as
+        // an unresolved orphan that could block future payment attempts for the same order.
+        PaymentResult providerResult;
         try {
-            saved = paymentRepository.save(payment);
-        } catch (DataIntegrityViolationException ex) {
-            return handleConcurrentPaymentInitiation(order.id(), providerCode, idempotencyKey, userId, ex);
+            providerResult = provider.createPayment(new PaymentRequest(
+                request.orderId().toString(),
+                Money.of(pending.getAmount(), pending.getCurrency()),
+                request.returnUrl(),
+                idempotencyKey,
+                Map.of("paymentId", pending.getId().toString())
+            ));
+        } catch (RuntimeException ex) {
+            transactionTemplate.execute(status -> {
+                markPaymentFailedById(pending.getId());
+                return null;
+            });
+            throw ex;
         }
 
-        var result = provider.createPayment(new PaymentRequest(
-            request.orderId().toString(),
-            Money.of(order.totalAmount(), order.totalCurrency()),
-            request.returnUrl(),
-            idempotencyKey,
-            Map.of("paymentId", saved.getId().toString())
-        ));
-
-        saved.setProviderPaymentId(result.providerPaymentId());
-        saved.setStatus(mapStatus(result.status()));
-        saved.setFailureReason(result.failureReason());
-        storeNextActionUrl(saved, result.nextActionUrl());
-        paymentRepository.save(saved);
+        // Phase 3: Apply PSP result in a separate transaction.
+        Payment completed = transactionTemplate.execute(
+            status -> applyProviderResult(pending, providerResult)
+        );
+        Objects.requireNonNull(completed, "Failed to apply provider result to payment");
         log.info("Payment initiated: paymentId={}, orderId={}, userId={}, provider={}, status={}",
-            saved.getId(),
-            saved.getOrderId(),
+            completed.getId(),
+            completed.getOrderId(),
             userId,
-            saved.getProviderCode(),
-            saved.getStatus());
+            completed.getProviderCode(),
+            completed.getStatus());
 
-        return paymentMapper.toDto(saved, result.nextActionUrl());
+        return paymentMapper.toDto(completed, providerResult.nextActionUrl());
     }
 
     @Transactional
@@ -181,6 +188,89 @@ public class PaymentService {
         var payment = paymentRepository.findById(paymentId)
             .orElseThrow(() -> new ResourceNotFoundException("Payment", "id", paymentId));
         updatePaymentStatus(payment, newStatus);
+    }
+
+    // --- Private helpers ---
+
+    private InitiationResult preparePaymentRecord(
+        Long userId, String providerCode, String idempotencyKey, InitiatePaymentRequest request
+    ) {
+        var order = orderAccessGateway.findByIdAndUserId(request.orderId(), userId)
+            .orElseThrow(() -> new BusinessException(
+                "ACCESS_DENIED",
+                "Order is not available for current user"
+            ));
+        validateRequestedAmount(request, order);
+
+        var existingByKey = paymentRepository.findByIdempotencyKey(idempotencyKey);
+        if (existingByKey.isPresent()) {
+            var existingPayment = existingByKey.get();
+            validateIdempotencyOwnership(existingPayment, order.id(), providerCode);
+            log.info("Idempotent payment replay by key: paymentId={}, orderId={}, provider={}, userId={}",
+                existingPayment.getId(),
+                order.id(),
+                providerCode,
+                userId);
+            return InitiationResult.earlyReturn(paymentMapper.toDto(existingPayment, readNextActionUrl(existingPayment)));
+        }
+
+        var existingActivePayment = findActivePayment(order.id(), providerCode);
+        if (existingActivePayment.isPresent()) {
+            var payment = existingActivePayment.get();
+            log.info("Idempotent payment replay by active payment: paymentId={}, orderId={}, provider={}, userId={}",
+                payment.getId(),
+                order.id(),
+                providerCode,
+                userId);
+            return InitiationResult.earlyReturn(paymentMapper.toDto(payment, readNextActionUrl(payment)));
+        }
+
+        var provider = providerRegistry.getProvider(providerCode);
+
+        var payment = new Payment();
+        payment.setOrderId(request.orderId());
+        payment.setProviderCode(providerCode);
+        payment.setAmount(order.totalAmount());
+        payment.setCurrency(order.totalCurrency());
+        payment.setIdempotencyKey(idempotencyKey);
+        payment.setStatus(PaymentStatus.PENDING);
+        payment.setMetadata(new HashMap<>(Map.of(METADATA_INITIATED_BY_USER_ID, userId)));
+
+        Payment saved;
+        try {
+            saved = paymentRepository.save(payment);
+        } catch (DataIntegrityViolationException ex) {
+            PaymentDTO dto = handleConcurrentPaymentInitiation(order.id(), providerCode, idempotencyKey, userId, ex);
+            return InitiationResult.earlyReturn(dto);
+        }
+
+        return InitiationResult.newPayment(saved, provider);
+    }
+
+    private Payment applyProviderResult(Payment pending, PaymentResult result) {
+        pending.setProviderPaymentId(result.providerPaymentId());
+        pending.setStatus(mapStatus(result.status()));
+        pending.setFailureReason(result.failureReason());
+        storeNextActionUrl(pending, result.nextActionUrl());
+        try {
+            return paymentRepository.save(pending);
+        } catch (ObjectOptimisticLockingFailureException ex) {
+            // A webhook concurrently updated the payment between Phase 1 and Phase 3.
+            // Return the current committed state; the webhook has applied the authoritative status.
+            log.warn("Optimistic lock conflict applying provider result: paymentId={}, returning current state",
+                pending.getId());
+            return paymentRepository.findById(pending.getId())
+                .orElseThrow(() -> ex);
+        }
+    }
+
+    private void markPaymentFailedById(Long paymentId) {
+        paymentRepository.findById(paymentId).ifPresent(payment -> {
+            if (payment.getStatus() == PaymentStatus.PENDING) {
+                payment.setStatus(PaymentStatus.FAILED);
+                paymentRepository.save(payment);
+            }
+        });
     }
 
     private void updatePaymentStatus(Payment payment, PaymentStatus newStatus) {
@@ -429,6 +519,21 @@ public class PaymentService {
         }
         String normalized = rawValue.toLowerCase(Locale.ROOT);
         return markers.stream().anyMatch(normalized::contains);
+    }
+
+    private record InitiationResult(PaymentDTO dto, Payment payment, PaymentProvider provider) {
+
+        static InitiationResult earlyReturn(PaymentDTO dto) {
+            return new InitiationResult(dto, null, null);
+        }
+
+        static InitiationResult newPayment(Payment payment, PaymentProvider provider) {
+            return new InitiationResult(null, payment, provider);
+        }
+
+        boolean isEarlyReturn() {
+            return dto != null;
+        }
     }
 
     private record WebhookPayload(String providerPaymentId, String status, String eventId) {

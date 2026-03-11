@@ -30,10 +30,18 @@
 ### 1) Create payment (card or redirect)
 1. Client creates an order: `POST /api/v1/orders`.
 2. Client initiates payment: `POST /api/v1/payments` with `orderId`, `providerCode`, `returnUrl`.
-3. Backend creates `Payment` in `PENDING` and calls provider with `idempotencyKey`.
-4. Provider returns `providerPaymentId` and `nextAction` (redirect URL or client secret).
-5. Backend returns `nextAction` to the client.
-6. Client completes payment in provider UI/SDK.
+3. Backend persists `Payment` in `PENDING` and commits (Phase 1 TX) — no provider call yet.
+4. Backend calls provider with `idempotencyKey` outside any DB transaction (Phase 2).
+   - On provider failure: payment is marked `FAILED` in a separate transaction and the error is returned.
+5. Backend applies provider result (`providerPaymentId`, status) in a separate transaction (Phase 3 TX).
+6. Provider returns `providerPaymentId` and `nextAction` (redirect URL or client secret).
+7. Backend returns `nextAction` to the client.
+8. Client completes payment in provider UI/SDK.
+
+> **Durable initiation guarantee**: committing the PENDING record before any external call ensures
+> the payment is never charged without a corresponding DB record. If the app crashes between Phase 2
+> and Phase 3, the payment remains PENDING and is reconciled via the provider webhook or periodic
+> reconciliation job.
 
 ### 2) Webhook confirmation (source of truth)
 1. Provider sends webhook to `POST /api/webhooks/payments/{provider}`.
