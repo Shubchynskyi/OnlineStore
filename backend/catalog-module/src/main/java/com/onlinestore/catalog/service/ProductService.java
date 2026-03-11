@@ -12,6 +12,7 @@ import com.onlinestore.catalog.repository.ProductRepository;
 import com.onlinestore.catalog.repository.ProductSpecification;
 import com.onlinestore.common.config.RabbitMQConfig;
 import com.onlinestore.common.dto.PageResponse;
+import com.onlinestore.common.event.OutboxService;
 import com.onlinestore.common.exception.ResourceNotFoundException;
 import com.onlinestore.common.util.SlugGenerator;
 import java.util.LinkedHashMap;
@@ -19,7 +20,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -36,7 +36,7 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ProductMapper productMapper;
-    private final RabbitTemplate rabbitTemplate;
+    private final OutboxService outboxService;
     private final SlugGenerator slugGenerator;
 
     @Transactional(readOnly = true)
@@ -111,7 +111,7 @@ public class ProductService {
     }
 
     private void publishEvent(String routingKey, ProductDTO product) {
-        rabbitTemplate.convertAndSend(RabbitMQConfig.PRODUCT_EXCHANGE, routingKey, product);
+        outboxService.queueEvent(RabbitMQConfig.PRODUCT_EXCHANGE, routingKey, product);
     }
 
     private List<Product> loadProductsWithDetails(List<Product> products) {

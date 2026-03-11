@@ -16,6 +16,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.onlinestore.common.config.RabbitMQConfig;
+import com.onlinestore.common.event.OutboxService;
 import com.onlinestore.common.exception.BusinessException;
 import com.onlinestore.common.port.orders.OrderAccessGateway;
 import com.onlinestore.common.port.orders.OrderAccessView;
@@ -41,7 +42,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -59,7 +59,7 @@ class PaymentServiceTest {
     @Mock
     private PaymentProviderRegistry providerRegistry;
     @Mock
-    private RabbitTemplate rabbitTemplate;
+    private OutboxService outboxService;
     @Mock
     private TransactionTemplate transactionTemplate;
 
@@ -78,7 +78,7 @@ class PaymentServiceTest {
             webhookEventRepository,
             orderAccessGateway,
             providerRegistry,
-            rabbitTemplate,
+            outboxService,
             new PaymentMapper(),
             new ObjectMapper(),
             transactionTemplate
@@ -157,7 +157,7 @@ class PaymentServiceTest {
         );
 
         verify(paymentRepository, never()).findByProviderCodeAndProviderPaymentId(any(), any());
-        verifyNoInteractions(rabbitTemplate);
+        verifyNoInteractions(outboxService);
     }
 
     @Test
@@ -178,7 +178,7 @@ class PaymentServiceTest {
         assertThrows(BusinessException.class, () -> paymentService.handleWebhook("paypal", payload, "signature", currentTimestamp()));
 
         verify(paymentRepository, never()).save(any());
-        verifyNoInteractions(rabbitTemplate);
+        verifyNoInteractions(outboxService);
     }
 
     @Test
@@ -213,7 +213,7 @@ class PaymentServiceTest {
         paymentService.handleWebhook("paypal", payload, "signature", currentTimestamp());
         paymentService.handleWebhook("paypal", payload, "signature", currentTimestamp());
 
-        verify(rabbitTemplate, times(1)).convertAndSend(
+        verify(outboxService, times(1)).queueEvent(
             eq(RabbitMQConfig.PAYMENT_EXCHANGE),
             eq("payment.completed"),
             org.mockito.ArgumentMatchers.<Object>any()
@@ -375,7 +375,7 @@ class PaymentServiceTest {
             DataIntegrityViolationException.class,
             () -> paymentService.handleWebhook("paypal", payload, "signature", currentTimestamp())
         );
-        verifyNoInteractions(rabbitTemplate);
+        verifyNoInteractions(outboxService);
     }
 
     @Test
@@ -410,7 +410,7 @@ class PaymentServiceTest {
             DataIntegrityViolationException.class,
             () -> paymentService.handleWebhook("paypal", payload, "signature", currentTimestamp())
         );
-        verifyNoInteractions(rabbitTemplate);
+        verifyNoInteractions(outboxService);
     }
 
     @Test
@@ -459,7 +459,7 @@ class PaymentServiceTest {
             () -> paymentService.updatePaymentStatus(500L, PaymentStatus.FAILED));
         assertEquals("INVALID_PAYMENT_TRANSITION", ex.getErrorCode());
         verify(paymentRepository, never()).save(any());
-        verifyNoInteractions(rabbitTemplate);
+        verifyNoInteractions(outboxService);
     }
 
     @Test
@@ -523,7 +523,7 @@ class PaymentServiceTest {
         paymentService.updatePaymentStatus(504L, PaymentStatus.AUTHORIZED);
 
         assertEquals(PaymentStatus.AUTHORIZED, payment.getStatus());
-        verifyNoInteractions(rabbitTemplate);
+        verifyNoInteractions(outboxService);
     }
 
     @Test
@@ -547,7 +547,7 @@ class PaymentServiceTest {
         String payload = "{\"providerPaymentId\":\"paypal-payment-505\",\"status\":\"FAILED\",\"eventId\":\"evt-505\"}";
         assertThrows(BusinessException.class,
             () -> paymentService.handleWebhook("paypal", payload, "signature", currentTimestamp()));
-        verifyNoInteractions(rabbitTemplate);
+        verifyNoInteractions(outboxService);
     }
 
     @Test
@@ -605,11 +605,12 @@ class PaymentServiceTest {
         )).thenReturn(Optional.empty());
         when(providerRegistry.getProvider("paypal")).thenReturn(provider);
         when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
-            Payment p = inv.getArgument(0);
-            if (p.getId() == null) {
-                p.setId(401L);
+            Payment source = inv.getArgument(0);
+            Payment savedCopy = copyPayment(source);
+            if (savedCopy.getId() == null) {
+                savedCopy.setId(401L);
             }
-            return p;
+            return savedCopy;
         });
         when(provider.createPayment(any())).thenReturn(providerResult);
 
@@ -627,5 +628,23 @@ class PaymentServiceTest {
 
     private String currentTimestamp() {
         return String.valueOf(Instant.now().getEpochSecond());
+    }
+
+    private Payment copyPayment(Payment source) {
+        var copy = new Payment();
+        copy.setId(source.getId());
+        copy.setOrderId(source.getOrderId());
+        copy.setProviderCode(source.getProviderCode());
+        copy.setProviderPaymentId(source.getProviderPaymentId());
+        copy.setStatus(source.getStatus());
+        copy.setAmount(source.getAmount());
+        copy.setCurrency(source.getCurrency());
+        copy.setIdempotencyKey(source.getIdempotencyKey());
+        copy.setFailureReason(source.getFailureReason());
+        copy.setMetadata(source.getMetadata() == null ? null : new HashMap<>(source.getMetadata()));
+        copy.setCreatedAt(source.getCreatedAt());
+        copy.setUpdatedAt(source.getUpdatedAt());
+        copy.setVersion(source.getVersion());
+        return copy;
     }
 }

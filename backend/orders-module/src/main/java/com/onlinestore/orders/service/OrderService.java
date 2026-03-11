@@ -2,6 +2,7 @@ package com.onlinestore.orders.service;
 
 import com.onlinestore.common.config.RabbitMQConfig;
 import com.onlinestore.common.dto.PageResponse;
+import com.onlinestore.common.event.OutboxService;
 import com.onlinestore.common.exception.BusinessException;
 import com.onlinestore.common.exception.ResourceNotFoundException;
 import com.onlinestore.common.port.address.AddressAccessGateway;
@@ -22,7 +23,6 @@ import java.util.Map;
 import java.util.TreeMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
@@ -38,7 +38,7 @@ public class OrderService {
     private final AddressAccessGateway addressAccessGateway;
     private final OrderMapper orderMapper;
     private final OrderStateMachineConfig stateMachineConfig;
-    private final RabbitTemplate rabbitTemplate;
+    private final OutboxService outboxService;
 
     @Transactional
     public OrderDTO createOrder(Long userId, CreateOrderRequest request) {
@@ -155,6 +155,6 @@ public class OrderService {
     }
 
     private void publishEvent(String routingKey, OrderDTO orderDto) {
-        rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE, routingKey, orderDto);
+        outboxService.queueEvent(RabbitMQConfig.ORDER_EXCHANGE, routingKey, orderDto);
     }
 }

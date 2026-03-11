@@ -86,6 +86,7 @@ To retry after FAILED, create a new Payment record.
 ## Idempotency and reliability
 - Use an idempotency key per create, confirm, and refund request.
 - Use an outbox to publish payment events to RabbitMQ.
+- Orders, catalog, and payments now persist events in `outbox_events`; `OutboxPublisher` pushes pending records to RabbitMQ with retry/backoff and failure tracking.
 - Keep webhook processing idempotent and safe to retry.
 
 ## Events

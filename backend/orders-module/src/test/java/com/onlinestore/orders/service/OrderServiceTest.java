@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.onlinestore.common.exception.BusinessException;
+import com.onlinestore.common.event.OutboxService;
 import com.onlinestore.common.port.address.AddressAccessGateway;
 import com.onlinestore.common.port.catalog.ProductVariantGateway;
 import com.onlinestore.common.port.catalog.ProductVariantOrderView;
@@ -33,7 +34,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
@@ -49,7 +49,7 @@ class OrderServiceTest {
     @Mock
     private OrderStateMachineConfig stateMachineConfig;
     @Mock
-    private RabbitTemplate rabbitTemplate;
+    private OutboxService outboxService;
 
     private OrderService orderService;
 
@@ -61,7 +61,7 @@ class OrderServiceTest {
             addressAccessGateway,
             orderMapper,
             stateMachineConfig,
-            rabbitTemplate
+            outboxService
         );
     }
 
@@ -76,7 +76,7 @@ class OrderServiceTest {
 
         assertThrows(BusinessException.class, () -> orderService.createOrder(1L, request));
 
-        verifyNoInteractions(productVariantGateway, orderRepository, orderMapper, rabbitTemplate);
+        verifyNoInteractions(productVariantGateway, orderRepository, orderMapper, outboxService);
     }
 
     @Test
@@ -118,6 +118,7 @@ class OrderServiceTest {
         assertSame(expectedDto, result);
         verify(productVariantGateway).reserveStock(1000L, 3);
         verify(orderRepository).save(any(Order.class));
+        verify(outboxService).queueEvent(any(), any(), any());
     }
 
     @Test

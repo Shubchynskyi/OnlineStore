@@ -1,6 +1,7 @@
 package com.onlinestore.payments.service;
 
 import com.onlinestore.common.config.RabbitMQConfig;
+import com.onlinestore.common.event.OutboxService;
 import com.onlinestore.common.exception.BusinessException;
 import com.onlinestore.common.exception.ResourceNotFoundException;
 import com.onlinestore.common.port.orders.OrderAccessGateway;
@@ -27,7 +28,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.hibernate.exception.ConstraintViolationException;
@@ -61,7 +61,7 @@ public class PaymentService {
     private final PaymentWebhookEventRepository webhookEventRepository;
     private final OrderAccessGateway orderAccessGateway;
     private final PaymentProviderRegistry providerRegistry;
-    private final RabbitTemplate rabbitTemplate;
+    private final OutboxService outboxService;
     private final PaymentMapper paymentMapper;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
@@ -74,7 +74,7 @@ public class PaymentService {
         PaymentWebhookEventRepository webhookEventRepository,
         OrderAccessGateway orderAccessGateway,
         PaymentProviderRegistry providerRegistry,
-        RabbitTemplate rabbitTemplate,
+        OutboxService outboxService,
         PaymentMapper paymentMapper,
         ObjectMapper objectMapper,
         TransactionTemplate transactionTemplate
@@ -83,7 +83,7 @@ public class PaymentService {
         this.webhookEventRepository = webhookEventRepository;
         this.orderAccessGateway = orderAccessGateway;
         this.providerRegistry = providerRegistry;
-        this.rabbitTemplate = rabbitTemplate;
+        this.outboxService = outboxService;
         this.paymentMapper = paymentMapper;
         this.objectMapper = objectMapper;
         this.transactionTemplate = transactionTemplate;
@@ -289,7 +289,7 @@ public class PaymentService {
             newStatus);
 
         if (newStatus == PaymentStatus.PAID && previousStatus != PaymentStatus.PAID) {
-            rabbitTemplate.convertAndSend(
+            outboxService.queueEvent(
                 RabbitMQConfig.PAYMENT_EXCHANGE,
                 "payment.completed",
                 paymentMapper.toEvent(saved)
