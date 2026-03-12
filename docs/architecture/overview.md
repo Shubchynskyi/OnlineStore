@@ -134,6 +134,13 @@ sequenceDiagram
 - ✅ **Distributed Tracing** (OpenTelemetry)
 - ✅ **Centralized Logging**
 
+### Identity Resolution Contract
+
+- Backend modules treat Keycloak `sub` as the canonical external user identity.
+- The users module resolves or provisions the internal `users.id` record by `keycloakId` on authenticated requests.
+- Users, orders, payments, and shipping controllers share one resolver that converts JWT claims into the internal numeric `userId`.
+- If a JWT also carries `user_id`, backend code validates it against the persisted subject mapping instead of trusting it as the source of truth.
+
 ---
 
 ## 💳 Plugin Architecture: Payments & Shipping

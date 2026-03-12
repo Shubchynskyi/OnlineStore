@@ -1,6 +1,6 @@
 package com.onlinestore.payments.api;
 
-import com.onlinestore.common.exception.BusinessException;
+import com.onlinestore.common.security.AuthenticatedUserResolver;
 import com.onlinestore.payments.dto.InitiatePaymentRequest;
 import com.onlinestore.payments.dto.PaymentDTO;
 import com.onlinestore.payments.service.PaymentService;
@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class PaymentController {
 
+    private final AuthenticatedUserResolver authenticatedUserResolver;
     private final PaymentService paymentService;
 
     @PostMapping
@@ -28,18 +29,6 @@ public class PaymentController {
         @AuthenticationPrincipal Jwt jwt,
         @Valid @RequestBody InitiatePaymentRequest request
     ) {
-        return paymentService.initiatePayment(extractUserId(jwt), request);
-    }
-
-    private Long extractUserId(Jwt jwt) {
-        String claimValue = jwt.getClaimAsString("user_id");
-        if (claimValue == null || claimValue.isBlank()) {
-            throw new BusinessException("INVALID_TOKEN", "user_id claim is missing");
-        }
-        try {
-            return Long.parseLong(claimValue);
-        } catch (NumberFormatException ex) {
-            throw new BusinessException("INVALID_TOKEN", "user_id claim has invalid format");
-        }
+        return paymentService.initiatePayment(authenticatedUserResolver.resolve(jwt).requiredUserId(), request);
     }
 }

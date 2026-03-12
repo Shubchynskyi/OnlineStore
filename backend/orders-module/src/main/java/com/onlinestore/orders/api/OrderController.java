@@ -1,7 +1,7 @@
 package com.onlinestore.orders.api;
 
 import com.onlinestore.common.dto.PageResponse;
-import com.onlinestore.common.exception.BusinessException;
+import com.onlinestore.common.security.AuthenticatedUserResolver;
 import com.onlinestore.orders.dto.CreateOrderRequest;
 import com.onlinestore.orders.dto.OrderDTO;
 import com.onlinestore.orders.entity.OrderEvent;
@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class OrderController {
 
+    private final AuthenticatedUserResolver authenticatedUserResolver;
     private final OrderService orderService;
 
     @PostMapping("/api/v1/orders")
@@ -33,17 +34,17 @@ public class OrderController {
         @AuthenticationPrincipal Jwt jwt,
         @Valid @RequestBody CreateOrderRequest request
     ) {
-        return orderService.createOrder(extractUserId(jwt), request);
+        return orderService.createOrder(authenticatedUserResolver.resolve(jwt).requiredUserId(), request);
     }
 
     @GetMapping("/api/v1/orders")
     public PageResponse<OrderDTO> getOrders(@AuthenticationPrincipal Jwt jwt, Pageable pageable) {
-        return orderService.getUserOrders(extractUserId(jwt), pageable);
+        return orderService.getUserOrders(authenticatedUserResolver.resolve(jwt).requiredUserId(), pageable);
     }
 
     @GetMapping("/api/v1/orders/{id}")
     public OrderDTO getOrder(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
-        return orderService.getOrder(id, extractUserId(jwt));
+        return orderService.getOrder(id, authenticatedUserResolver.resolve(jwt).requiredUserId());
     }
 
     @PatchMapping("/api/admin/orders/{id}/status")
@@ -53,17 +54,5 @@ public class OrderController {
         @RequestParam(required = false) String comment
     ) {
         return orderService.updateStatus(id, event, comment);
-    }
-
-    private Long extractUserId(Jwt jwt) {
-        String claimValue = jwt.getClaimAsString("user_id");
-        if (claimValue == null || claimValue.isBlank()) {
-            throw new BusinessException("INVALID_TOKEN", "user_id claim is missing");
-        }
-        try {
-            return Long.parseLong(claimValue);
-        } catch (NumberFormatException ex) {
-            throw new BusinessException("INVALID_TOKEN", "user_id claim has invalid format");
-        }
     }
 }

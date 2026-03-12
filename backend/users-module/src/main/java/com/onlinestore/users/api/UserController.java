@@ -1,5 +1,6 @@
 package com.onlinestore.users.api;
 
+import com.onlinestore.common.security.AuthenticatedUserResolver;
 import com.onlinestore.users.dto.AddressDTO;
 import com.onlinestore.users.dto.CreateAddressRequest;
 import com.onlinestore.users.dto.UpdateProfileRequest;
@@ -26,11 +27,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class UserController {
 
+    private final AuthenticatedUserResolver authenticatedUserResolver;
     private final UserService userService;
 
     @GetMapping("/me")
     public UserDTO getCurrentUser(@AuthenticationPrincipal Jwt jwt) {
-        return userService.syncFromKeycloak(jwt);
+        return userService.getCurrentUser(authenticatedUserResolver.resolve(jwt).requiredUserId());
     }
 
     @PutMapping("/me")
@@ -38,12 +40,12 @@ public class UserController {
         @AuthenticationPrincipal Jwt jwt,
         @Valid @RequestBody UpdateProfileRequest request
     ) {
-        return userService.updateProfile(jwt.getSubject(), request);
+        return userService.updateProfile(authenticatedUserResolver.resolve(jwt).requiredUserId(), request);
     }
 
     @GetMapping("/me/addresses")
     public List<AddressDTO> getAddresses(@AuthenticationPrincipal Jwt jwt) {
-        return userService.getAddresses(jwt.getSubject());
+        return userService.getAddresses(authenticatedUserResolver.resolve(jwt).requiredUserId());
     }
 
     @PostMapping("/me/addresses")
@@ -52,12 +54,12 @@ public class UserController {
         @AuthenticationPrincipal Jwt jwt,
         @Valid @RequestBody CreateAddressRequest request
     ) {
-        return userService.addAddress(jwt.getSubject(), request);
+        return userService.addAddress(authenticatedUserResolver.resolve(jwt).requiredUserId(), request);
     }
 
     @DeleteMapping("/me/addresses/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeAddress(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
-        userService.removeAddress(jwt.getSubject(), id);
+        userService.removeAddress(authenticatedUserResolver.resolve(jwt).requiredUserId(), id);
     }
 }

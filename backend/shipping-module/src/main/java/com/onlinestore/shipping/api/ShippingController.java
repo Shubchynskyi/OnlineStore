@@ -1,6 +1,6 @@
 package com.onlinestore.shipping.api;
 
-import com.onlinestore.common.exception.BusinessException;
+import com.onlinestore.common.security.AuthenticatedUserResolver;
 import com.onlinestore.shipping.dto.ShipmentDTO;
 import com.onlinestore.shipping.provider.ShippingRequest;
 import com.onlinestore.shipping.service.ShippingService;
@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class ShippingController {
 
+    private final AuthenticatedUserResolver authenticatedUserResolver;
     private final ShippingService shippingService;
 
     @PostMapping
@@ -33,7 +34,7 @@ public class ShippingController {
         @AuthenticationPrincipal Jwt jwt,
         @RequestBody @Validated CreateShipmentRequest request
     ) {
-        var userId = extractUserId(jwt);
+        var userId = authenticatedUserResolver.resolve(jwt).requiredUserId();
         var shippingRequest = new ShippingRequest(
             request.orderId(),
             request.destinationCountry(),
@@ -45,7 +46,7 @@ public class ShippingController {
 
     @GetMapping("/order/{orderId}")
     public ShipmentDTO getByOrder(@AuthenticationPrincipal Jwt jwt, @PathVariable Long orderId) {
-        return shippingService.getByOrderId(extractUserId(jwt), orderId);
+        return shippingService.getByOrderId(authenticatedUserResolver.resolve(jwt).requiredUserId(), orderId);
     }
 
     public record CreateShipmentRequest(
@@ -55,17 +56,5 @@ public class ShippingController {
         @NotBlank String destinationCity,
         @NotBlank String destinationPostalCode
     ) {
-    }
-
-    private Long extractUserId(Jwt jwt) {
-        String claimValue = jwt.getClaimAsString("user_id");
-        if (claimValue == null || claimValue.isBlank()) {
-            throw new BusinessException("INVALID_TOKEN", "user_id claim is missing");
-        }
-        try {
-            return Long.parseLong(claimValue);
-        } catch (NumberFormatException ex) {
-            throw new BusinessException("INVALID_TOKEN", "user_id claim has invalid format");
-        }
     }
 }
