@@ -141,6 +141,12 @@ sequenceDiagram
 - Users, orders, payments, and shipping controllers share one resolver that converts JWT claims into the internal numeric `userId`.
 - If a JWT also carries `user_id`, backend code validates it against the persisted subject mapping instead of trusting it as the source of truth.
 
+### Orders And Cart Contract
+
+- The orders module owns both `/api/v1/orders` and `/api/v1/cart*` authenticated APIs.
+- Each user has a persisted cart aggregate with cart items keyed by `productVariantId`.
+- Cart writes validate current catalog stock and refresh item price snapshots before totals are recalculated.
+
 ---
 
 ## 💳 Plugin Architecture: Payments & Shipping
