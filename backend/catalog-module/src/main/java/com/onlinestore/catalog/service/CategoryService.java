@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageImpl;
@@ -46,6 +47,12 @@ public class CategoryService {
         var dtoPage = new PageImpl<>(dtoContent, pageable, productsPage.getTotalElements());
         PageResponse<ProductDTO> products = PageResponse.of(dtoPage);
         return new CategoryWithProductsDTO(productMapper.toCategoryDto(category), products);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<String> findSlugById(Long categoryId) {
+        return categoryRepository.findById(categoryId)
+            .map(category -> category.getSlug());
     }
 
     private List<Product> loadProductsWithDetails(List<Product> products) {

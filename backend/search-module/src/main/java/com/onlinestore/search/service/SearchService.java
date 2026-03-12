@@ -2,6 +2,7 @@ package com.onlinestore.search.service;
 
 import com.onlinestore.catalog.dto.ProductDTO;
 import com.onlinestore.catalog.dto.VariantDTO;
+import com.onlinestore.catalog.service.CategoryService;
 import com.onlinestore.search.document.ProductDocument;
 import com.onlinestore.search.dto.ProductSearchRequest;
 import com.onlinestore.search.dto.ProductSearchResult;
@@ -10,6 +11,7 @@ import com.onlinestore.common.dto.PageResponse;
 import java.math.BigDecimal;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -20,12 +22,14 @@ import org.springframework.data.elasticsearch.core.query.CriteriaQuery;
 import org.springframework.stereotype.Service;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "onlinestore.search.enabled", havingValue = "true", matchIfMissing = true)
 public class SearchService {
 
     private final ElasticsearchOperations elasticsearchOperations;
     private final ProductDocumentRepository productDocumentRepository;
+    private final CategoryService categoryService;
 
     public PageResponse<ProductSearchResult> search(ProductSearchRequest request, Pageable pageable) {
         var criteria = new Criteria("status").is("ACTIVE");
@@ -104,9 +108,7 @@ public class SearchService {
         document.setName(product.name());
         document.setDescription(product.description());
         document.setCategoryName(product.categoryName());
-        document.setCategorySlug(product.categoryName() == null
-            ? null
-            : product.categoryName().toLowerCase().replace(' ', '-'));
+        document.setCategorySlug(resolveCategorySlug(product));
         document.setInStock(product.variants().stream().anyMatch(variant -> variant.stock() > 0));
         document.setMinPrice(product.variants().stream()
             .map(VariantDTO::price)
@@ -120,5 +122,23 @@ public class SearchService {
         document.setImageUrls(product.images().stream().map(image -> image.url()).toList());
         document.setSuggest(product.name());
         return document;
+    }
+
+    private String resolveCategorySlug(ProductDTO product) {
+        if (product.categorySlug() != null && !product.categorySlug().isBlank()) {
+            return product.categorySlug();
+        }
+        if (product.categoryId() == null) {
+            return null;
+        }
+        return categoryService.findSlugById(product.categoryId())
+            .orElseGet(() -> {
+                log.warn(
+                    "Unable to resolve canonical category slug for legacy search sync event. productId={}, categoryId={}",
+                    product.id(),
+                    product.categoryId()
+                );
+                return null;
+            });
     }
 }

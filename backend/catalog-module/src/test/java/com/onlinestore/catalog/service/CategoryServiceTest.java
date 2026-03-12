@@ -60,6 +60,7 @@ class CategoryServiceTest {
             "Description",
             2L,
             "Electronics",
+            "electronics",
             ProductStatus.ACTIVE,
             false,
             List.of(),

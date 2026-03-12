@@ -25,6 +25,7 @@ public class ProductMapper {
             product.getDescription(),
             product.getCategory() == null ? null : product.getCategory().getId(),
             product.getCategory() == null ? null : product.getCategory().getName(),
+            product.getCategory() == null ? null : product.getCategory().getSlug(),
             product.getStatus(),
             product.isFeatured(),
             product.getVariants().stream().map(this::toVariantDto).toList(),

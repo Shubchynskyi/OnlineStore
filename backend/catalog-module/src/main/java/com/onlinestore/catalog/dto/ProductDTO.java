@@ -12,6 +12,7 @@ public record ProductDTO(
     String description,
     Long categoryId,
     String categoryName,
+    String categorySlug,
     ProductStatus status,
     boolean isFeatured,
     List<VariantDTO> variants,
