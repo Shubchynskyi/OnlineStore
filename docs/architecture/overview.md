@@ -203,6 +203,7 @@ classDiagram
 Payment flow details: [payments-integration.md](payments-integration.md).
 - Contract endpoints: `POST /api/v1/payments`, `POST /api/v1/payments/{id}/confirm`, `POST /api/admin/payments/{id}/refund`, `POST /api/webhooks/payments/{provider}`.
 - Shipping contract endpoints: `POST /api/v1/shipping/rates`, `POST /api/v1/shipping`, `GET /api/v1/shipping/order/{orderId}`, `GET /api/v1/shipping/{shipmentId}/tracking`, `POST /api/v1/shipping/{shipmentId}/cancel`, `GET|PUT /api/admin/shipping/providers`.
+- Notification delivery now runs through a `NotificationService` contract with email and push adapters, while dedicated RabbitMQ realtime queues fan out `product.*` and `order.*` events to `/topic/products/{id}` and `/topic/orders/{id}` with subscription-time owner checks for order topics, minimal payloads over WebSocket, and a broker guard that rejects direct client `SEND` frames to `/topic/**`.
 
 ---
 

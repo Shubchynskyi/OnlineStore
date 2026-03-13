@@ -23,8 +23,10 @@ public class RabbitMQConfig {
     public static final String DLQ_EXCHANGE = "dlq.exchange";
 
     public static final String PRODUCT_SEARCH_QUEUE = "product.search.sync";
+    public static final String PRODUCT_REALTIME_QUEUE = "product.realtime";
     public static final String PRODUCT_CACHE_QUEUE = "product.cache.invalidation";
     public static final String ORDER_NOTIFICATION_QUEUE = "order.notification";
+    public static final String ORDER_REALTIME_QUEUE = "order.realtime";
     public static final String ORDER_PAYMENT_QUEUE = "order.payment.process";
     public static final String PAYMENT_ORDER_QUEUE = "payment.order.update";
     public static final String NOTIFICATION_EMAIL_QUEUE = "notification.email";
@@ -74,6 +76,19 @@ public class RabbitMQConfig {
     }
 
     @Bean
+    public Queue productRealtimeQueue() {
+        return QueueBuilder.durable(PRODUCT_REALTIME_QUEUE)
+            .withArgument("x-dead-letter-exchange", DLQ_EXCHANGE)
+            .withArgument("x-dead-letter-routing-key", PRODUCT_REALTIME_QUEUE + ".dlq")
+            .build();
+    }
+
+    @Bean
+    public Binding productRealtimeBinding() {
+        return BindingBuilder.bind(productRealtimeQueue()).to(productExchange()).with("product.#");
+    }
+
+    @Bean
     public Queue orderNotificationQueue() {
         return QueueBuilder.durable(ORDER_NOTIFICATION_QUEUE)
             .withArgument("x-dead-letter-exchange", DLQ_EXCHANGE)
@@ -84,6 +99,19 @@ public class RabbitMQConfig {
     @Bean
     public Binding orderNotificationBinding() {
         return BindingBuilder.bind(orderNotificationQueue()).to(orderExchange()).with("order.#");
+    }
+
+    @Bean
+    public Queue orderRealtimeQueue() {
+        return QueueBuilder.durable(ORDER_REALTIME_QUEUE)
+            .withArgument("x-dead-letter-exchange", DLQ_EXCHANGE)
+            .withArgument("x-dead-letter-routing-key", ORDER_REALTIME_QUEUE + ".dlq")
+            .build();
+    }
+
+    @Bean
+    public Binding orderRealtimeBinding() {
+        return BindingBuilder.bind(orderRealtimeQueue()).to(orderExchange()).with("order.#");
     }
 
     @Bean

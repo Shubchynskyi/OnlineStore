@@ -336,22 +336,17 @@ Payment flow, webhooks, and status model: [../architecture/payments-integration.
   | GET | `/api/v1/public/search/suggest?q=...` | Autocomplete |
 
 ### 4.2 Notifications Module
-- [ ] **NotificationService** interface
-- [ ] **Channels**:
-  - [ ] `EmailNotificationChannel` (SendGrid / AWS SES)
-  - [ ] `SmsNotificationChannel` (Twilio / optional)
-  - [ ] `PushNotificationChannel` (Firebase)
-- [ ] **Templates**: Thymeleaf / Mustache for email
-- [ ] **RabbitMQ Listener**:
-  ```java
-  @RabbitListener(queues = "notifications")
-  public void handleNotification(NotificationEvent event) {
-      notificationService.send(event);
-  }
-  ```
+- [x] **NotificationService** interface with `DefaultNotificationService`
+- [x] **Channels**:
+  - [x] `EmailNotificationChannel`
+  - [ ] `SmsNotificationChannel` (Twilio / optional; intentionally left out of Stage 1 closure scope)
+  - [x] `PushNotificationChannel` (Firebase-compatible adapter boundary, local stub delivery)
+- [x] **Templates**: email bodies are rendered through the shared notification template service
+- [x] **RabbitMQ Listener**:
+  - `OrderNotificationListener` consumes `order.notification` and delegates `order.created` / `order.status-changed` events into the notification service contract
 
 ### 4.3 WebSocket for Real-time Updates
-- [ ] STOMP configuration:
+- [x] STOMP configuration:
   ```java
   @Configuration
   @EnableWebSocketMessageBroker
@@ -363,10 +358,11 @@ Payment flow, webhooks, and status model: [../architecture/payments-integration.
       }
   }
   ```
-- [ ] Topics:
+- [x] Topics:
   - `/topic/products/{id}` — product updates
-  - `/topic/orders/{id}` — order status
-- [ ] Broadcast on changes via RabbitMQ
+  - `/topic/orders/{id}` — order status updates with minimal realtime payloads and owner-checked subscriptions
+- [x] Broadcast on changes via RabbitMQ using dedicated `product.realtime` / `order.realtime` listeners in the application module
+- [x] Broker guard blocks direct client `SEND` frames to `/topic/**`; clients publish only via `/app/**`
 
 ### 4.4 API Documentation
 - [ ] SpringDoc OpenAPI (Swagger UI)
