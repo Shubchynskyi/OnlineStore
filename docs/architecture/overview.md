@@ -142,6 +142,12 @@ sequenceDiagram
 - Users, orders, payments, and shipping controllers share one resolver that converts JWT claims into the internal numeric `userId`.
 - If a JWT also carries `user_id`, backend code validates it against the persisted subject mapping instead of trusting it as the source of truth.
 
+### Catalog Media Contract
+
+- Catalog products expose product-level attributes in addition to variant-level JSONB attributes.
+- Admin media ingestion uses a two-step flow: `POST /api/admin/media/uploads` returns a presigned `PUT` URL, then `POST /api/admin/products/{id}/images` attaches the uploaded object to the product.
+- Product image URLs resolve from the shared S3-compatible catalog media bucket, backed by MinIO in local environments.
+
 ### Orders And Cart Contract
 
 - The orders module owns both `/api/v1/orders` and `/api/v1/cart*` authenticated APIs.

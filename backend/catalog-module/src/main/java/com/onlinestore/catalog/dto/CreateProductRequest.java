@@ -11,6 +11,7 @@ public record CreateProductRequest(
     @Size(max = 5000) String description,
     Long categoryId,
     boolean isFeatured,
-    @Valid @NotEmpty List<CreateVariantRequest> variants
+    @Valid @NotEmpty List<CreateVariantRequest> variants,
+    @Valid List<ProductAttributeRequest> attributes
 ) {
 }

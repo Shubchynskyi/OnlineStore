@@ -16,7 +16,8 @@ public record ProductDTO(
     ProductStatus status,
     boolean isFeatured,
     List<VariantDTO> variants,
-    List<ImageDTO> images
+    List<ImageDTO> images,
+    List<ProductAttributeDTO> attributes
 ) implements Serializable {
 
     @Serial

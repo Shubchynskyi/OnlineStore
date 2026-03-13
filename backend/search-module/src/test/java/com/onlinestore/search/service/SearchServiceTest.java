@@ -54,7 +54,8 @@ class SearchServiceTest {
             ProductStatus.ACTIVE,
             false,
             List.of(new VariantDTO(1L, "SKU-1", "Default", new BigDecimal("199.99"), "EUR", null, 5, java.util.Map.of(), true)),
-            List.of(new ImageDTO(1L, "https://cdn.example.test/phone.png", "Phone", 0, true))
+            List.of(new ImageDTO(1L, "https://cdn.example.test/phone.png", "Phone", 0, true)),
+            List.of()
         );
 
         searchService.indexProduct(payload);
@@ -79,7 +80,8 @@ class SearchServiceTest {
             ProductStatus.ACTIVE,
             false,
             List.of(new VariantDTO(1L, "SKU-1", "Default", new BigDecimal("199.99"), "EUR", null, 5, java.util.Map.of(), true)),
-            List.of(new ImageDTO(1L, "https://cdn.example.test/phone.png", "Phone", 0, true))
+            List.of(new ImageDTO(1L, "https://cdn.example.test/phone.png", "Phone", 0, true)),
+            List.of()
         );
         when(categoryService.findSlugById(2L)).thenReturn(java.util.Optional.of("mobile-devices"));
 
@@ -104,7 +106,8 @@ class SearchServiceTest {
             ProductStatus.ACTIVE,
             false,
             List.of(new VariantDTO(1L, "SKU-1", "Default", new BigDecimal("199.99"), "EUR", null, 5, java.util.Map.of(), true)),
-            List.of(new ImageDTO(1L, "https://cdn.example.test/phone.png", "Phone", 0, true))
+            List.of(new ImageDTO(1L, "https://cdn.example.test/phone.png", "Phone", 0, true)),
+            List.of()
         );
         when(categoryService.findSlugById(2L)).thenReturn(java.util.Optional.empty());
 

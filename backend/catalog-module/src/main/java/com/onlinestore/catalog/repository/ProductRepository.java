@@ -16,15 +16,18 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
 
     Optional<Product> findBySlug(String slug);
 
-    @EntityGraph(attributePaths = {"variants", "images", "category"})
+    @EntityGraph(attributePaths = {"variants", "images", "attributes", "category"})
     Optional<Product> findWithDetailsById(Long id);
 
-    @EntityGraph(attributePaths = {"variants", "images", "category"})
+    @EntityGraph(attributePaths = {"variants", "images", "attributes", "category"})
     Optional<Product> findWithDetailsBySlug(String slug);
 
-    @EntityGraph(attributePaths = {"variants", "images", "category"})
+    @EntityGraph(attributePaths = {"variants", "images", "attributes", "category"})
     @Query("SELECT DISTINCT p FROM Product p WHERE p.id IN :ids")
     List<Product> findAllWithDetailsByIdIn(@Param("ids") Collection<Long> ids);
+
+    @Query("SELECT COUNT(image) > 0 FROM ProductImage image WHERE image.objectKey = :objectKey")
+    boolean existsImageByObjectKey(@Param("objectKey") String objectKey);
 
     @Query("SELECT p FROM Product p WHERE p.status = 'ACTIVE' AND p.category.id = :categoryId")
     Page<Product> findActiveByCategory(@Param("categoryId") Long categoryId, Pageable pageable);

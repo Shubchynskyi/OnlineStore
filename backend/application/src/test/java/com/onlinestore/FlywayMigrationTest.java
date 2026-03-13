@@ -21,7 +21,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 class FlywayMigrationTest {
 
-    private static final List<String> EXPECTED_MIGRATION_VERSIONS = List.of("1", "2", "3", "4", "5", "6");
+    private static final List<String> EXPECTED_MIGRATION_VERSIONS = List.of("1", "2", "3", "4", "5", "6", "7");
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17-alpine")
@@ -49,9 +49,14 @@ class FlywayMigrationTest {
         assertThat(tableExists("payment_webhook_events")).isTrue();
         assertThat(tableExists("outbox_events")).isTrue();
         assertThat(tableExists("carts")).isTrue();
+        assertThat(tableExists("product_attributes")).isTrue();
+        assertThat(columnExists("product_images", "object_key")).isTrue();
         assertThat(indexExists("ux_payment_webhook_events_provider_event")).isTrue();
         assertThat(indexExists("idx_outbox_events_status_next_attempt")).isTrue();
         assertThat(indexExists("idx_cart_items_product_variant_id")).isTrue();
+        assertThat(indexExists("idx_product_attributes_product_id")).isTrue();
+        assertThat(indexExists("ux_product_attributes_product_name")).isTrue();
+        assertThat(indexExists("ux_product_images_object_key")).isTrue();
     }
 
     private List<String> appliedMigrationVersions(Flyway flyway) {
@@ -88,6 +93,14 @@ class FlywayMigrationTest {
         return booleanQuery(
             "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
                 + "WHERE table_schema = 'public' AND table_name = '%s')".formatted(tableName)
+        );
+    }
+
+    private boolean columnExists(String tableName, String columnName) throws SQLException {
+        return booleanQuery(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+                + "WHERE table_schema = 'public' AND table_name = '%s' AND column_name = '%s')"
+                .formatted(tableName, columnName)
         );
     }
 

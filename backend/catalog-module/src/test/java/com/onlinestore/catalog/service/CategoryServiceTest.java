@@ -64,6 +64,7 @@ class CategoryServiceTest {
             ProductStatus.ACTIVE,
             false,
             List.of(),
+            List.of(),
             List.of()
         );
 
