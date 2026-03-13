@@ -85,7 +85,9 @@ springdoc:
 onlinestore:
   security:
     cors:
-      allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:4200}
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:4200,http://127.0.0.1:3000,http://127.0.0.1:4200}
+      allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,PATCH,DELETE,OPTIONS}
+      allowed-headers: ${CORS_ALLOWED_HEADERS:Authorization,Content-Type,Accept,Accept-Language,Cache-Control,Pragma,X-Requested-With}
   payments:
     webhook:
       max-age-seconds: ${PAYMENTS_WEBHOOK_MAX_AGE_SECONDS:300}

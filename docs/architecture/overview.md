@@ -127,6 +127,7 @@ sequenceDiagram
 
 **Features:**
 - ✅ **JWT Validation** via Keycloak
+- ✅ **Explicit CORS Allowlist** for browser origins, methods, and headers
 - ✅ **Rate Limiting** (Redis-based)
 - ✅ **Circuit Breaker** for backend services
 - ✅ **Request/Response Transformation**

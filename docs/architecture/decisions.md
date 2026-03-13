@@ -539,6 +539,31 @@ axios.interceptors.response.use(
 
 ---
 
+## ADR-009: Flyway PostgreSQL Extension Provisioning Strategy
+
+**Status**: Accepted
+**Date**: 2026-03-13
+**Context**: Flyway migrations currently require PostgreSQL extensions `uuid-ossp` and `pg_trgm`. Local Docker development can install them on the primary database, but managed or restricted environments may not allow the application role to execute `CREATE EXTENSION`.
+
+### Decision
+Keep extension provisioning in versioned Flyway migrations with idempotent `CREATE EXTENSION IF NOT EXISTS` statements, while treating extension privileges as an explicit deployment prerequisite.
+
+### Operational Model
+- Local Docker and self-managed PostgreSQL environments should run Flyway with a role that can install `uuid-ossp` and `pg_trgm`.
+- Managed or restricted PostgreSQL environments must pre-provision `uuid-ossp` and `pg_trgm` before the first application deployment if the Flyway role lacks extension-install privileges.
+- Primary and replica PostgreSQL images must ship the same extension binaries so WAL replay remains valid after extension creation on the primary node.
+- Missing extension support must fail fast during migration. Do not add runtime fallbacks or silently disable UUID or trigram-backed capabilities.
+- Browser-facing services must use explicit CORS allowlists. `onlinestore.security.cors.allowed-origins`, `allowed-methods`, and `allowed-headers` are the configuration source of truth, with `CORS_ALLOWED_ORIGINS`, `CORS_ALLOWED_METHODS`, and `CORS_ALLOWED_HEADERS` as environment overrides.
+
+### Consequences
+- ✅ Deterministic database bootstrap remains inside Flyway-managed schema history.
+- ✅ Platform responsibilities are clear: extensions are either installed by the Flyway role or pre-provisioned before rollout.
+- ✅ Replica safety is explicit because extension binaries must exist on every PostgreSQL node.
+- ⚠️ First deployment into privilege-restricted environments requires DBA/platform coordination.
+- ⚠️ Misconfigured extension privileges now surface as deployment failures instead of degraded runtime behavior.
+
+---
+
 ## Decisions Summary
 
 | ADR | Decision | Status | Priority |
@@ -551,12 +576,12 @@ axios.interceptors.response.use(
 | ADR-006 | Cache Invalidation via RabbitMQ | ✅ Accepted | 🟡 High |
 | ADR-007 | Vault for Secrets | ✅ Accepted | 🟡 High |
 | ADR-008 | Refresh Token Strategy | ✅ Accepted | 🟢 Medium |
+| ADR-009 | Flyway PostgreSQL Extension Provisioning Strategy | ✅ Accepted | 🟡 High |
 
 ---
 
 ## Future Decisions (TODO)
 
-- [ ] **ADR-009**: Database Migration Strategy (Flyway backward compatibility)
 - [ ] **ADR-010**: Deployment Strategy (Rolling / Blue-Green / Canary)
 - [ ] **ADR-011**: Contract Testing (Pact / Spring Cloud Contract)
 - [ ] **ADR-012**: Feature Flags (LaunchDarkly / Unleash)
