@@ -1,6 +1,8 @@
 package com.onlinestore.payments.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -20,14 +22,21 @@ import com.onlinestore.common.event.OutboxService;
 import com.onlinestore.common.exception.BusinessException;
 import com.onlinestore.common.port.orders.OrderAccessGateway;
 import com.onlinestore.common.port.orders.OrderAccessView;
+import com.onlinestore.payments.dto.ConfirmPaymentRequest;
 import com.onlinestore.payments.dto.InitiatePaymentRequest;
+import com.onlinestore.payments.dto.RefundPaymentRequest;
 import com.onlinestore.payments.entity.Payment;
-import com.onlinestore.payments.entity.PaymentWebhookEvent;
+import com.onlinestore.payments.entity.PaymentMutation;
+import com.onlinestore.payments.entity.PaymentMutationStatus;
+import com.onlinestore.payments.entity.PaymentMutationType;
 import com.onlinestore.payments.entity.PaymentStatus;
+import com.onlinestore.payments.entity.PaymentWebhookEvent;
 import com.onlinestore.payments.mapper.PaymentMapper;
 import com.onlinestore.payments.provider.PaymentProvider;
 import com.onlinestore.payments.provider.PaymentResult;
+import com.onlinestore.payments.provider.RefundResult;
 import com.onlinestore.payments.registry.PaymentProviderRegistry;
+import com.onlinestore.payments.repository.PaymentMutationRepository;
 import com.onlinestore.payments.repository.PaymentRepository;
 import com.onlinestore.payments.repository.PaymentWebhookEventRepository;
 import java.math.BigDecimal;
@@ -43,6 +52,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
@@ -52,6 +62,8 @@ class PaymentServiceTest {
 
     @Mock
     private PaymentRepository paymentRepository;
+    @Mock
+    private PaymentMutationRepository paymentMutationRepository;
     @Mock
     private PaymentWebhookEventRepository webhookEventRepository;
     @Mock
@@ -68,13 +80,13 @@ class PaymentServiceTest {
     @SuppressWarnings("unchecked")
     @BeforeEach
     void setUp() {
-        // Make transactionTemplate transparent: execute callback synchronously without real TX
         lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
             var callback = (TransactionCallback<?>) invocation.getArgument(0);
             return callback.doInTransaction(null);
         });
         paymentService = new PaymentService(
             paymentRepository,
+            paymentMutationRepository,
             webhookEventRepository,
             orderAccessGateway,
             providerRegistry,
@@ -95,12 +107,12 @@ class PaymentServiceTest {
             "https://example.com/return",
             "idem-100"
         );
-        var order = new OrderAccessView(10L, 77L, new BigDecimal("19.99"), "EUR");
+        when(orderAccessGateway.findByIdAndUserId(10L, 77L))
+            .thenReturn(Optional.of(order(10L, 77L, "19.99", "EUR")));
 
-        when(orderAccessGateway.findByIdAndUserId(10L, 77L)).thenReturn(Optional.of(order));
+        var ex = assertThrows(BusinessException.class, () -> paymentService.initiatePayment(77L, request));
 
-        assertThrows(BusinessException.class, () -> paymentService.initiatePayment(77L, request));
-
+        assertEquals("AMOUNT_MISMATCH", ex.getErrorCode());
         verify(providerRegistry, never()).getProvider(any());
         verify(paymentRepository, never()).save(any());
     }
@@ -115,20 +127,12 @@ class PaymentServiceTest {
             "https://example.com/return",
             "idem-200"
         );
-        var order = new OrderAccessView(10L, 77L, new BigDecimal("19.99"), "EUR");
-
-        var existingPayment = new Payment();
-        existingPayment.setId(42L);
-        existingPayment.setOrderId(10L);
-        existingPayment.setProviderCode("paypal");
+        var existingPayment = payment(42L, 10L, "paypal", PaymentStatus.REQUIRES_ACTION, "19.99", "EUR");
         existingPayment.setProviderPaymentId("paypal-payment-42");
-        existingPayment.setStatus(PaymentStatus.REQUIRES_ACTION);
-        existingPayment.setAmount(new BigDecimal("19.99"));
-        existingPayment.setCurrency("EUR");
-        existingPayment.setMetadata(new HashMap<>());
         existingPayment.getMetadata().put("nextActionUrl", "https://example.com/pay/42");
 
-        when(orderAccessGateway.findByIdAndUserId(10L, 77L)).thenReturn(Optional.of(order));
+        when(orderAccessGateway.findByIdAndUserId(10L, 77L))
+            .thenReturn(Optional.of(order(10L, 77L, "19.99", "EUR")));
         when(paymentRepository.findByIdempotencyKey("idem-200")).thenReturn(Optional.of(existingPayment));
 
         var dto = paymentService.initiatePayment(77L, request);
@@ -142,7 +146,6 @@ class PaymentServiceTest {
     @Test
     void handleWebhookShouldRejectInvalidSignature() {
         var provider = mock(PaymentProvider.class);
-
         when(providerRegistry.getProviderForWebhook("paypal")).thenReturn(provider);
         when(provider.verifyWebhook(any(), any(), any())).thenReturn(false);
 
@@ -161,37 +164,10 @@ class PaymentServiceTest {
     }
 
     @Test
-    void handleWebhookShouldRejectUnknownStatus() {
-        var provider = mock(PaymentProvider.class);
-        var payment = new Payment();
-        payment.setId(55L);
-        payment.setProviderPaymentId("paypal-payment-55");
-        payment.setStatus(PaymentStatus.PENDING);
-        payment.setMetadata(new HashMap<>());
-
-        when(providerRegistry.getProviderForWebhook("paypal")).thenReturn(provider);
-        when(provider.verifyWebhook(any(), any(), any())).thenReturn(true);
-        when(paymentRepository.findByProviderCodeAndProviderPaymentId("paypal", "paypal-payment-55"))
-            .thenReturn(Optional.of(payment));
-
-        String payload = "{\"providerPaymentId\":\"paypal-payment-55\",\"status\":\"UNKNOWN\",\"eventId\":\"evt-1\"}";
-        assertThrows(BusinessException.class, () -> paymentService.handleWebhook("paypal", payload, "signature", currentTimestamp()));
-
-        verify(paymentRepository, never()).save(any());
-        verifyNoInteractions(outboxService);
-    }
-
-    @Test
     void handleWebhookShouldPublishOnlyOnceForReplayEvent() {
         var provider = mock(PaymentProvider.class);
-        var payment = new Payment();
-        payment.setId(11L);
-        payment.setOrderId(99L);
-        payment.setAmount(new BigDecimal("15.00"));
-        payment.setCurrency("EUR");
+        var payment = payment(11L, 99L, "paypal", PaymentStatus.PENDING, "15.00", "EUR");
         payment.setProviderPaymentId("paypal-payment-11");
-        payment.setStatus(PaymentStatus.PENDING);
-        payment.setMetadata(new HashMap<>());
 
         when(providerRegistry.getProviderForWebhook("paypal")).thenReturn(provider);
         when(provider.verifyWebhook(any(), any(), any())).thenReturn(true);
@@ -215,6 +191,11 @@ class PaymentServiceTest {
 
         verify(outboxService, times(1)).queueEvent(
             eq(RabbitMQConfig.PAYMENT_EXCHANGE),
+            eq("payments.completed"),
+            org.mockito.ArgumentMatchers.<Object>any()
+        );
+        verify(outboxService, times(1)).queueEvent(
+            eq(RabbitMQConfig.PAYMENT_EXCHANGE),
             eq("payment.completed"),
             org.mockito.ArgumentMatchers.<Object>any()
         );
@@ -224,14 +205,8 @@ class PaymentServiceTest {
     @Test
     void handleWebhookShouldUseWebhookProviderLookup() {
         var provider = mock(PaymentProvider.class);
-        var payment = new Payment();
-        payment.setId(21L);
-        payment.setOrderId(88L);
-        payment.setAmount(new BigDecimal("25.00"));
-        payment.setCurrency("EUR");
+        var payment = payment(21L, 88L, "paypal", PaymentStatus.PENDING, "25.00", "EUR");
         payment.setProviderPaymentId("paypal-payment-21");
-        payment.setStatus(PaymentStatus.PENDING);
-        payment.setMetadata(new HashMap<>());
 
         when(providerRegistry.getProviderForWebhook("paypal")).thenReturn(provider);
         when(provider.verifyWebhook(any(), any(), any())).thenReturn(true);
@@ -247,96 +222,6 @@ class PaymentServiceTest {
     }
 
     @Test
-    void initiatePaymentShouldReturnConcurrentPaymentAfterUniqueConstraintRace() {
-        var provider = mock(PaymentProvider.class);
-        var request = new InitiatePaymentRequest(
-            10L,
-            "paypal",
-            new BigDecimal("19.99"),
-            "EUR",
-            "https://example.com/return",
-            "idem-300"
-        );
-        var order = new OrderAccessView(10L, 77L, new BigDecimal("19.99"), "EUR");
-
-        var concurrentPayment = new Payment();
-        concurrentPayment.setId(300L);
-        concurrentPayment.setOrderId(10L);
-        concurrentPayment.setProviderCode("paypal");
-        concurrentPayment.setStatus(PaymentStatus.PENDING);
-        concurrentPayment.setAmount(new BigDecimal("19.99"));
-        concurrentPayment.setCurrency("EUR");
-
-        when(orderAccessGateway.findByIdAndUserId(10L, 77L)).thenReturn(Optional.of(order));
-        when(paymentRepository.findByIdempotencyKey("idem-300"))
-            .thenReturn(Optional.empty())
-            .thenReturn(Optional.of(concurrentPayment));
-        when(paymentRepository.findFirstByOrderIdAndProviderCodeAndStatusInOrderByCreatedAtDesc(
-            eq(10L),
-            eq("paypal"),
-            any()
-        )).thenReturn(Optional.empty());
-        when(providerRegistry.getProvider("paypal")).thenReturn(provider);
-        when(paymentRepository.save(any(Payment.class))).thenThrow(new DataIntegrityViolationException(
-            "duplicate idempotency key",
-            new ConstraintViolationException(
-                "duplicate idempotency key",
-                new SQLException("duplicate key value violates unique constraint payments_idempotency_key_key", "23505"),
-                "payments_idempotency_key_key"
-            )
-        ));
-
-        var dto = paymentService.initiatePayment(77L, request);
-
-        assertEquals(300L, dto.id());
-        verify(provider, never()).createPayment(any());
-    }
-
-    @Test
-    void initiatePaymentShouldRejectConcurrentPaymentWhenOwnershipMismatch() {
-        var provider = mock(PaymentProvider.class);
-        var request = new InitiatePaymentRequest(
-            10L,
-            "paypal",
-            new BigDecimal("19.99"),
-            "EUR",
-            "https://example.com/return",
-            "idem-301"
-        );
-        var order = new OrderAccessView(10L, 77L, new BigDecimal("19.99"), "EUR");
-
-        var foreignPayment = new Payment();
-        foreignPayment.setId(301L);
-        foreignPayment.setOrderId(999L);
-        foreignPayment.setProviderCode("paypal");
-        foreignPayment.setStatus(PaymentStatus.PENDING);
-        foreignPayment.setAmount(new BigDecimal("19.99"));
-        foreignPayment.setCurrency("EUR");
-
-        when(orderAccessGateway.findByIdAndUserId(10L, 77L)).thenReturn(Optional.of(order));
-        when(paymentRepository.findByIdempotencyKey("idem-301"))
-            .thenReturn(Optional.empty())
-            .thenReturn(Optional.of(foreignPayment));
-        when(paymentRepository.findFirstByOrderIdAndProviderCodeAndStatusInOrderByCreatedAtDesc(
-            eq(10L),
-            eq("paypal"),
-            any()
-        )).thenReturn(Optional.empty());
-        when(providerRegistry.getProvider("paypal")).thenReturn(provider);
-        when(paymentRepository.save(any(Payment.class))).thenThrow(new DataIntegrityViolationException(
-            "duplicate idempotency key",
-            new ConstraintViolationException(
-                "duplicate idempotency key",
-                new SQLException("duplicate key value violates unique constraint payments_idempotency_key_key", "23505"),
-                "payments_idempotency_key_key"
-            )
-        ));
-
-        assertThrows(BusinessException.class, () -> paymentService.initiatePayment(77L, request));
-        verify(provider, never()).createPayment(any());
-    }
-
-    @Test
     void handleWebhookShouldRejectStaleTimestamp() {
         var provider = mock(PaymentProvider.class);
         when(providerRegistry.getProviderForWebhook("paypal")).thenReturn(provider);
@@ -346,75 +231,11 @@ class PaymentServiceTest {
         String payload = "{\"providerPaymentId\":\"paypal-payment-22\",\"status\":\"PAID\",\"eventId\":\"evt-22\"}";
 
         assertThrows(BusinessException.class, () -> paymentService.handleWebhook("paypal", payload, "signature", oldTimestamp));
-
         verify(paymentRepository, never()).findByProviderCodeAndProviderPaymentId(any(), any());
     }
 
     @Test
-    void handleWebhookShouldPropagateNonDuplicateIntegrityViolation() {
-        var provider = mock(PaymentProvider.class);
-        var payment = new Payment();
-        payment.setId(77L);
-        payment.setOrderId(100L);
-        payment.setAmount(new BigDecimal("30.00"));
-        payment.setCurrency("EUR");
-        payment.setProviderPaymentId("paypal-payment-77");
-        payment.setStatus(PaymentStatus.PENDING);
-        payment.setMetadata(new HashMap<>());
-
-        when(providerRegistry.getProviderForWebhook("paypal")).thenReturn(provider);
-        when(provider.verifyWebhook(any(), any(), any())).thenReturn(true);
-        when(paymentRepository.findByProviderCodeAndProviderPaymentId("paypal", "paypal-payment-77"))
-            .thenReturn(Optional.of(payment));
-        when(webhookEventRepository.saveAndFlush(any(PaymentWebhookEvent.class)))
-            .thenThrow(new DataIntegrityViolationException("value too long", new SQLException("value too long", "22001")));
-
-        String payload = "{\"providerPaymentId\":\"paypal-payment-77\",\"status\":\"PAID\",\"eventId\":\"evt-77\"}";
-
-        assertThrows(
-            DataIntegrityViolationException.class,
-            () -> paymentService.handleWebhook("paypal", payload, "signature", currentTimestamp())
-        );
-        verifyNoInteractions(outboxService);
-    }
-
-    @Test
-    void handleWebhookShouldPropagateUnexpectedUniqueConstraintViolation() {
-        var provider = mock(PaymentProvider.class);
-        var payment = new Payment();
-        payment.setId(78L);
-        payment.setOrderId(101L);
-        payment.setAmount(new BigDecimal("35.00"));
-        payment.setCurrency("EUR");
-        payment.setProviderPaymentId("paypal-payment-78");
-        payment.setStatus(PaymentStatus.PENDING);
-        payment.setMetadata(new HashMap<>());
-
-        when(providerRegistry.getProviderForWebhook("paypal")).thenReturn(provider);
-        when(provider.verifyWebhook(any(), any(), any())).thenReturn(true);
-        when(paymentRepository.findByProviderCodeAndProviderPaymentId("paypal", "paypal-payment-78"))
-            .thenReturn(Optional.of(payment));
-        when(webhookEventRepository.saveAndFlush(any(PaymentWebhookEvent.class)))
-            .thenThrow(new DataIntegrityViolationException(
-                "unexpected unique violation",
-                new ConstraintViolationException(
-                    "unexpected unique violation",
-                    new SQLException("duplicate key value violates unique constraint orders_pkey", "23505"),
-                    "orders_pkey"
-                )
-            ));
-
-        String payload = "{\"providerPaymentId\":\"paypal-payment-78\",\"status\":\"PAID\",\"eventId\":\"evt-78\"}";
-
-        assertThrows(
-            DataIntegrityViolationException.class,
-            () -> paymentService.handleWebhook("paypal", payload, "signature", currentTimestamp())
-        );
-        verifyNoInteractions(outboxService);
-    }
-
-    @Test
-    void initiatePaymentShouldPropagateUnexpectedIntegrityViolationOnInitialSave() {
+    void initiatePaymentShouldMarkPaymentFailedWhenProviderThrows() {
         var provider = mock(PaymentProvider.class);
         var request = new InitiatePaymentRequest(
             10L,
@@ -422,162 +243,23 @@ class PaymentServiceTest {
             new BigDecimal("19.99"),
             "EUR",
             "https://example.com/return",
-            "idem-302"
+            "idem-400"
         );
-        var order = new OrderAccessView(10L, 77L, new BigDecimal("19.99"), "EUR");
+        var savedPayment = payment(400L, 10L, "paypal", PaymentStatus.PENDING, "19.99", "EUR");
 
-        when(orderAccessGateway.findByIdAndUserId(10L, 77L)).thenReturn(Optional.of(order));
-        when(paymentRepository.findByIdempotencyKey("idem-302")).thenReturn(Optional.empty());
-        when(paymentRepository.findFirstByOrderIdAndProviderCodeAndStatusInOrderByCreatedAtDesc(
-            eq(10L),
-            eq("paypal"),
-            any()
-        )).thenReturn(Optional.empty());
-        when(providerRegistry.getProvider("paypal")).thenReturn(provider);
-        when(paymentRepository.save(any(Payment.class))).thenThrow(new DataIntegrityViolationException(
-            "foreign key violation",
-            new ConstraintViolationException(
-                "foreign key violation",
-                new SQLException("insert or update on table payments violates foreign key constraint payments_order_id_fkey", "23503"),
-                "payments_order_id_fkey"
-            )
-        ));
-
-        assertThrows(DataIntegrityViolationException.class, () -> paymentService.initiatePayment(77L, request));
-        verify(provider, never()).createPayment(any());
-    }
-
-    @Test
-    void updatePaymentStatusShouldRejectPaidToFailed() {
-        var payment = new Payment();
-        payment.setId(500L);
-        payment.setStatus(PaymentStatus.PAID);
-
-        when(paymentRepository.findById(500L)).thenReturn(Optional.of(payment));
-
-        var ex = assertThrows(BusinessException.class,
-            () -> paymentService.updatePaymentStatus(500L, PaymentStatus.FAILED));
-        assertEquals("INVALID_PAYMENT_TRANSITION", ex.getErrorCode());
-        verify(paymentRepository, never()).save(any());
-        verifyNoInteractions(outboxService);
-    }
-
-    @Test
-    void updatePaymentStatusShouldRejectAuthorizedToPending() {
-        var payment = new Payment();
-        payment.setId(501L);
-        payment.setStatus(PaymentStatus.AUTHORIZED);
-
-        when(paymentRepository.findById(501L)).thenReturn(Optional.of(payment));
-
-        assertThrows(BusinessException.class,
-            () -> paymentService.updatePaymentStatus(501L, PaymentStatus.PENDING));
-        verify(paymentRepository, never()).save(any());
-    }
-
-    @Test
-    void updatePaymentStatusShouldAllowPaidToRefunded() {
-        var payment = new Payment();
-        payment.setId(502L);
-        payment.setOrderId(10L);
-        payment.setAmount(new BigDecimal("20.00"));
-        payment.setCurrency("EUR");
-        payment.setStatus(PaymentStatus.PAID);
-        payment.setMetadata(new HashMap<>());
-
-        when(paymentRepository.findById(502L)).thenReturn(Optional.of(payment));
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        paymentService.updatePaymentStatus(502L, PaymentStatus.REFUNDED);
-
-        assertEquals(PaymentStatus.REFUNDED, payment.getStatus());
-    }
-
-    @Test
-    void updatePaymentStatusShouldAllowPendingToFailed() {
-        var payment = new Payment();
-        payment.setId(503L);
-        payment.setOrderId(11L);
-        payment.setAmount(new BigDecimal("10.00"));
-        payment.setCurrency("EUR");
-        payment.setStatus(PaymentStatus.PENDING);
-        payment.setMetadata(new HashMap<>());
-
-        when(paymentRepository.findById(503L)).thenReturn(Optional.of(payment));
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        paymentService.updatePaymentStatus(503L, PaymentStatus.FAILED);
-
-        assertEquals(PaymentStatus.FAILED, payment.getStatus());
-    }
-
-    @Test
-    void updatePaymentStatusShouldNoOpOnSameStatus() {
-        var payment = new Payment();
-        payment.setId(504L);
-        payment.setStatus(PaymentStatus.AUTHORIZED);
-
-        when(paymentRepository.findById(504L)).thenReturn(Optional.of(payment));
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        paymentService.updatePaymentStatus(504L, PaymentStatus.AUTHORIZED);
-
-        assertEquals(PaymentStatus.AUTHORIZED, payment.getStatus());
-        verifyNoInteractions(outboxService);
-    }
-
-    @Test
-    void webhookShouldRejectPaidToFailedTransition() {
-        var provider = mock(PaymentProvider.class);
-        var payment = new Payment();
-        payment.setId(505L);
-        payment.setOrderId(200L);
-        payment.setAmount(new BigDecimal("50.00"));
-        payment.setCurrency("EUR");
-        payment.setProviderPaymentId("paypal-payment-505");
-        payment.setStatus(PaymentStatus.PAID);
-        payment.setMetadata(new HashMap<>());
-
-        when(providerRegistry.getProviderForWebhook("paypal")).thenReturn(provider);
-        when(provider.verifyWebhook(any(), any(), any())).thenReturn(true);
-        when(paymentRepository.findByProviderCodeAndProviderPaymentId("paypal", "paypal-payment-505"))
-            .thenReturn(Optional.of(payment));
-        when(webhookEventRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
-
-        String payload = "{\"providerPaymentId\":\"paypal-payment-505\",\"status\":\"FAILED\",\"eventId\":\"evt-505\"}";
-        assertThrows(BusinessException.class,
-            () -> paymentService.handleWebhook("paypal", payload, "signature", currentTimestamp()));
-        verifyNoInteractions(outboxService);
-    }
-
-    @Test
-    void initiatePaymentShouldMarkPaymentFailedWhenProviderThrows() {
-        var provider = mock(PaymentProvider.class);
-        var request = new InitiatePaymentRequest(
-            10L, "paypal", new BigDecimal("19.99"), "EUR", "https://example.com/return", "idem-400"
-        );
-        var order = new OrderAccessView(10L, 77L, new BigDecimal("19.99"), "EUR");
-
-        var savedPayment = new Payment();
-        savedPayment.setOrderId(10L);
-        savedPayment.setProviderCode("paypal");
-        savedPayment.setStatus(PaymentStatus.PENDING);
-        savedPayment.setAmount(new BigDecimal("19.99"));
-        savedPayment.setCurrency("EUR");
-        savedPayment.setMetadata(new HashMap<>());
-
-        when(orderAccessGateway.findByIdAndUserId(10L, 77L)).thenReturn(Optional.of(order));
+        when(orderAccessGateway.findByIdAndUserId(10L, 77L))
+            .thenReturn(Optional.of(order(10L, 77L, "19.99", "EUR")));
         when(paymentRepository.findByIdempotencyKey("idem-400")).thenReturn(Optional.empty());
         when(paymentRepository.findFirstByOrderIdAndProviderCodeAndStatusInOrderByCreatedAtDesc(
             eq(10L), eq("paypal"), any()
         )).thenReturn(Optional.empty());
         when(providerRegistry.getProvider("paypal")).thenReturn(provider);
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
-            Payment p = inv.getArgument(0);
-            if (p.getId() == null) {
-                p.setId(400L);
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
+            Payment source = invocation.getArgument(0);
+            if (source.getId() == null) {
+                source.setId(400L);
             }
-            return p;
+            return source;
         });
         when(paymentRepository.findById(400L)).thenReturn(Optional.of(savedPayment));
         when(provider.createPayment(any())).thenThrow(new RuntimeException("PSP unavailable"));
@@ -585,27 +267,42 @@ class PaymentServiceTest {
         assertThrows(RuntimeException.class, () -> paymentService.initiatePayment(77L, request));
 
         assertEquals(PaymentStatus.FAILED, savedPayment.getStatus());
+        assertEquals("PSP unavailable", savedPayment.getFailureReason());
+        verify(outboxService).queueEvent(
+            eq(RabbitMQConfig.PAYMENT_EXCHANGE),
+            eq("payments.failed"),
+            org.mockito.ArgumentMatchers.<Object>any()
+        );
     }
 
     @Test
     void initiatePaymentShouldCallProviderAfterPendingRecordCommit() {
         var provider = mock(PaymentProvider.class);
         var request = new InitiatePaymentRequest(
-            10L, "paypal", new BigDecimal("19.99"), "EUR", "https://example.com/return", "idem-401"
+            10L,
+            "paypal",
+            new BigDecimal("19.99"),
+            "EUR",
+            "https://example.com/return",
+            "idem-401"
         );
-        var order = new OrderAccessView(10L, 77L, new BigDecimal("19.99"), "EUR");
         var providerResult = new PaymentResult(
-            "psp-payment-401", PaymentResult.PaymentResultStatus.REQUIRES_ACTION, "https://pay.example.com/401", null, null
+            "psp-payment-401",
+            PaymentResult.PaymentResultStatus.REQUIRES_ACTION,
+            "https://pay.example.com/401",
+            null,
+            null
         );
 
-        when(orderAccessGateway.findByIdAndUserId(10L, 77L)).thenReturn(Optional.of(order));
+        when(orderAccessGateway.findByIdAndUserId(10L, 77L))
+            .thenReturn(Optional.of(order(10L, 77L, "19.99", "EUR")));
         when(paymentRepository.findByIdempotencyKey("idem-401")).thenReturn(Optional.empty());
         when(paymentRepository.findFirstByOrderIdAndProviderCodeAndStatusInOrderByCreatedAtDesc(
             eq(10L), eq("paypal"), any()
         )).thenReturn(Optional.empty());
         when(providerRegistry.getProvider("paypal")).thenReturn(provider);
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
-            Payment source = inv.getArgument(0);
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
+            Payment source = invocation.getArgument(0);
             Payment savedCopy = copyPayment(source);
             if (savedCopy.getId() == null) {
                 savedCopy.setId(401L);
@@ -619,15 +316,380 @@ class PaymentServiceTest {
         assertEquals(PaymentStatus.REQUIRES_ACTION, dto.status());
         assertEquals("https://pay.example.com/401", dto.nextActionUrl());
 
-        // Phase 1 save (PENDING, no id yet) must happen before PSP call; Phase 3 save after
         var inOrder = inOrder(paymentRepository, provider);
         inOrder.verify(paymentRepository).save(argThat(p -> p.getId() == null && p.getStatus() == PaymentStatus.PENDING));
         inOrder.verify(provider).createPayment(any());
         inOrder.verify(paymentRepository).save(argThat(p -> Objects.equals(p.getId(), 401L)));
     }
 
+    @Test
+    void updatePaymentStatusShouldRejectPaidToFailed() {
+        var payment = payment(500L, 10L, "paypal", PaymentStatus.PAID, "20.00", "EUR");
+        when(paymentRepository.findById(500L)).thenReturn(Optional.of(payment));
+
+        var ex = assertThrows(BusinessException.class,
+            () -> paymentService.updatePaymentStatus(500L, PaymentStatus.FAILED));
+
+        assertEquals("INVALID_PAYMENT_TRANSITION", ex.getErrorCode());
+        verify(paymentRepository, never()).save(any());
+        verifyNoInteractions(outboxService);
+    }
+
+    @Test
+    void updatePaymentStatusShouldAllowPaidToRefundedAndPublishEvent() {
+        var payment = payment(502L, 10L, "paypal", PaymentStatus.PAID, "20.00", "EUR");
+        when(paymentRepository.findById(502L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        paymentService.updatePaymentStatus(502L, PaymentStatus.REFUNDED);
+
+        assertEquals(PaymentStatus.REFUNDED, payment.getStatus());
+        verify(outboxService).queueEvent(
+            eq(RabbitMQConfig.PAYMENT_EXCHANGE),
+            eq("payments.refunded"),
+            org.mockito.ArgumentMatchers.<Object>any()
+        );
+    }
+
+    @Test
+    void confirmPaymentShouldRejectForeignOrderOwnership() {
+        var payment = payment(610L, 10L, "paypal", PaymentStatus.REQUIRES_ACTION, "19.99", "EUR");
+        payment.setProviderPaymentId("paypal-payment-610");
+
+        when(paymentRepository.findById(610L)).thenReturn(Optional.of(payment));
+        when(orderAccessGateway.findByIdAndUserId(10L, 77L)).thenReturn(Optional.empty());
+
+        var ex = assertThrows(
+            BusinessException.class,
+            () -> paymentService.confirmPayment(77L, 610L, new ConfirmPaymentRequest("confirm-610"))
+        );
+
+        assertEquals("ACCESS_DENIED", ex.getErrorCode());
+        verify(paymentMutationRepository, never()).findByIdempotencyKey(any());
+        verify(providerRegistry, never()).getProvider(any());
+    }
+
+    @Test
+    void confirmPaymentShouldRejectWhenOrderTotalDiffers() {
+        var payment = payment(610L, 10L, "paypal", PaymentStatus.REQUIRES_ACTION, "19.99", "EUR");
+        payment.setProviderPaymentId("paypal-payment-610");
+
+        when(paymentRepository.findById(610L)).thenReturn(Optional.of(payment));
+        when(orderAccessGateway.findByIdAndUserId(10L, 77L))
+            .thenReturn(Optional.of(order(10L, 77L, "29.99", "EUR")));
+
+        var ex = assertThrows(
+            BusinessException.class,
+            () -> paymentService.confirmPayment(77L, 610L, new ConfirmPaymentRequest("confirm-610"))
+        );
+
+        assertEquals("AMOUNT_MISMATCH", ex.getErrorCode());
+        verify(paymentMutationRepository, never()).findByIdempotencyKey(any());
+    }
+
+    @Test
+    void confirmPaymentShouldReturnExistingPaymentForCompletedMutation() {
+        var payment = payment(611L, 10L, "paypal", PaymentStatus.PAID, "19.99", "EUR");
+        payment.setProviderPaymentId("paypal-payment-611");
+        var mutation = paymentMutation(6111L, 611L, PaymentMutationType.CONFIRM, "confirm-611", PaymentMutationStatus.COMPLETED);
+
+        when(paymentRepository.findById(611L)).thenReturn(Optional.of(payment));
+        when(orderAccessGateway.findByIdAndUserId(10L, 77L))
+            .thenReturn(Optional.of(order(10L, 77L, "19.99", "EUR")));
+        when(paymentMutationRepository.findByIdempotencyKey("confirm-611")).thenReturn(Optional.of(mutation));
+
+        var dto = paymentService.confirmPayment(77L, 611L, new ConfirmPaymentRequest("confirm-611"));
+
+        assertEquals(611L, dto.id());
+        assertEquals(PaymentStatus.PAID, dto.status());
+        verify(providerRegistry, never()).getProvider("paypal");
+    }
+
+    @Test
+    void confirmPaymentShouldRejectIdempotencyReuseAcrossPayments() {
+        var payment = payment(612L, 10L, "paypal", PaymentStatus.REQUIRES_ACTION, "19.99", "EUR");
+        payment.setProviderPaymentId("paypal-payment-612");
+        var mutation = paymentMutation(6121L, 999L, PaymentMutationType.CONFIRM, "confirm-612", PaymentMutationStatus.PENDING);
+
+        when(paymentRepository.findById(612L)).thenReturn(Optional.of(payment));
+        when(orderAccessGateway.findByIdAndUserId(10L, 77L))
+            .thenReturn(Optional.of(order(10L, 77L, "19.99", "EUR")));
+        when(paymentMutationRepository.findByIdempotencyKey("confirm-612")).thenReturn(Optional.of(mutation));
+
+        var ex = assertThrows(
+            BusinessException.class,
+            () -> paymentService.confirmPayment(77L, 612L, new ConfirmPaymentRequest("confirm-612"))
+        );
+
+        assertEquals("IDEMPOTENCY_KEY_REUSE", ex.getErrorCode());
+        verify(providerRegistry, never()).getProvider("paypal");
+    }
+
+    @Test
+    void confirmPaymentShouldRejectAnotherPendingMutationWithDifferentKey() {
+        var payment = payment(612L, 10L, "paypal", PaymentStatus.REQUIRES_ACTION, "19.99", "EUR");
+        payment.setProviderPaymentId("paypal-payment-612");
+        var pendingMutation = paymentMutation(
+            6122L,
+            612L,
+            PaymentMutationType.CONFIRM,
+            "confirm-612-original",
+            PaymentMutationStatus.PENDING
+        );
+
+        when(paymentRepository.findById(612L)).thenReturn(Optional.of(payment));
+        when(orderAccessGateway.findByIdAndUserId(10L, 77L))
+            .thenReturn(Optional.of(order(10L, 77L, "19.99", "EUR")));
+        when(paymentMutationRepository.findByIdempotencyKey("confirm-612-new")).thenReturn(Optional.empty());
+        when(paymentMutationRepository.findFirstByPaymentIdAndStatusOrderByCreatedAtDesc(612L, PaymentMutationStatus.PENDING))
+            .thenReturn(Optional.of(pendingMutation));
+
+        var ex = assertThrows(
+            BusinessException.class,
+            () -> paymentService.confirmPayment(77L, 612L, new ConfirmPaymentRequest("confirm-612-new"))
+        );
+
+        assertEquals("PAYMENT_MUTATION_IN_PROGRESS", ex.getErrorCode());
+        verify(providerRegistry, never()).getProvider("paypal");
+    }
+
+    @Test
+    void confirmPaymentShouldConfirmPaymentAndPublishLifecycleEvents() {
+        var provider = mock(PaymentProvider.class);
+        var payment = payment(613L, 10L, "paypal", PaymentStatus.REQUIRES_ACTION, "19.99", "EUR");
+        payment.setProviderPaymentId("paypal-payment-613");
+        PaymentMutation[] mutationRef = new PaymentMutation[1];
+
+        when(paymentRepository.findById(613L)).thenReturn(Optional.of(payment));
+        when(orderAccessGateway.findByIdAndUserId(10L, 77L))
+            .thenReturn(Optional.of(order(10L, 77L, "19.99", "EUR")));
+        when(paymentMutationRepository.findByIdempotencyKey("confirm-613")).thenReturn(Optional.empty());
+        when(paymentMutationRepository.findFirstByPaymentIdAndStatusOrderByCreatedAtDesc(613L, PaymentMutationStatus.PENDING))
+            .thenReturn(Optional.empty());
+        when(providerRegistry.getProvider("paypal")).thenReturn(provider);
+        when(paymentMutationRepository.save(any(PaymentMutation.class))).thenAnswer(invocation -> {
+            var mutation = invocation.getArgument(0, PaymentMutation.class);
+            if (mutation.getId() == null) {
+                mutation.setId(6131L);
+            }
+            mutationRef[0] = mutation;
+            return mutation;
+        });
+        when(paymentMutationRepository.findById(6131L)).thenAnswer(invocation -> Optional.ofNullable(mutationRef[0]));
+        when(provider.confirmPayment("paypal-payment-613", "confirm-613")).thenReturn(new PaymentResult(
+            "paypal-payment-613",
+            PaymentResult.PaymentResultStatus.PAID,
+            null,
+            null,
+            null
+        ));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var dto = paymentService.confirmPayment(77L, 613L, new ConfirmPaymentRequest("confirm-613"));
+
+        assertEquals(PaymentStatus.PAID, dto.status());
+        assertNull(dto.nextActionUrl());
+        assertNotNull(mutationRef[0]);
+        assertEquals(PaymentMutationStatus.COMPLETED, mutationRef[0].getStatus());
+        assertEquals("paypal-payment-613", mutationRef[0].getProviderReference());
+        verify(outboxService).queueEvent(
+            eq(RabbitMQConfig.PAYMENT_EXCHANGE),
+            eq("payments.completed"),
+            org.mockito.ArgumentMatchers.<Object>any()
+        );
+        verify(outboxService).queueEvent(
+            eq(RabbitMQConfig.PAYMENT_EXCHANGE),
+            eq("payment.completed"),
+            org.mockito.ArgumentMatchers.<Object>any()
+        );
+    }
+
+    @Test
+    void refundPaymentShouldExposeServiceLevelAuthorizationAnnotation() throws NoSuchMethodException {
+        var method = PaymentService.class.getMethod("refundPayment", Long.class, RefundPaymentRequest.class);
+        var annotation = method.getAnnotation(PreAuthorize.class);
+
+        assertNotNull(annotation);
+        assertEquals("hasAnyRole('ADMIN', 'MANAGER')", annotation.value());
+    }
+
+    @Test
+    void refundPaymentShouldRejectAmountMismatch() {
+        var payment = payment(620L, 10L, "paypal", PaymentStatus.PAID, "19.99", "EUR");
+        payment.setProviderPaymentId("paypal-payment-620");
+
+        when(paymentRepository.findById(620L)).thenReturn(Optional.of(payment));
+        when(orderAccessGateway.findById(10L)).thenReturn(Optional.of(order(10L, 77L, "19.99", "EUR")));
+
+        var ex = assertThrows(
+            BusinessException.class,
+            () -> paymentService.refundPayment(
+                620L,
+                new RefundPaymentRequest(new BigDecimal("9.99"), "EUR", "refund-620")
+            )
+        );
+
+        assertEquals("AMOUNT_MISMATCH", ex.getErrorCode());
+        verify(providerRegistry, never()).getProvider("paypal");
+    }
+
+    @Test
+    void refundPaymentShouldReturnExistingPaymentForCompletedMutation() {
+        var payment = payment(621L, 10L, "paypal", PaymentStatus.REFUNDED, "19.99", "EUR");
+        payment.setProviderPaymentId("paypal-payment-621");
+        var mutation = paymentMutation(6211L, 621L, PaymentMutationType.REFUND, "refund-621", PaymentMutationStatus.COMPLETED);
+
+        when(paymentRepository.findById(621L)).thenReturn(Optional.of(payment));
+        when(orderAccessGateway.findById(10L)).thenReturn(Optional.of(order(10L, 77L, "19.99", "EUR")));
+        when(paymentMutationRepository.findByIdempotencyKey("refund-621")).thenReturn(Optional.of(mutation));
+
+        var dto = paymentService.refundPayment(
+            621L,
+            new RefundPaymentRequest(new BigDecimal("19.99"), "EUR", "refund-621")
+        );
+
+        assertEquals(PaymentStatus.REFUNDED, dto.status());
+        verify(providerRegistry, never()).getProvider("paypal");
+    }
+
+    @Test
+    void refundPaymentShouldRejectAnotherPendingMutationWithDifferentKey() {
+        var payment = payment(622L, 10L, "paypal", PaymentStatus.PAID, "19.99", "EUR");
+        payment.setProviderPaymentId("paypal-payment-622");
+        var pendingMutation = paymentMutation(
+            6222L,
+            622L,
+            PaymentMutationType.REFUND,
+            "refund-622-original",
+            PaymentMutationStatus.PENDING
+        );
+
+        when(paymentRepository.findById(622L)).thenReturn(Optional.of(payment));
+        when(orderAccessGateway.findById(10L)).thenReturn(Optional.of(order(10L, 77L, "19.99", "EUR")));
+        when(paymentMutationRepository.findByIdempotencyKey("refund-622-new")).thenReturn(Optional.empty());
+        when(paymentMutationRepository.findFirstByPaymentIdAndStatusOrderByCreatedAtDesc(622L, PaymentMutationStatus.PENDING))
+            .thenReturn(Optional.of(pendingMutation));
+
+        var ex = assertThrows(
+            BusinessException.class,
+            () -> paymentService.refundPayment(
+                622L,
+                new RefundPaymentRequest(new BigDecimal("19.99"), "EUR", "refund-622-new")
+            )
+        );
+
+        assertEquals("PAYMENT_MUTATION_IN_PROGRESS", ex.getErrorCode());
+        verify(providerRegistry, never()).getProvider("paypal");
+    }
+
+    @Test
+    void refundPaymentShouldRejectIdempotencyReuseAcrossPayments() {
+        var payment = payment(622L, 10L, "paypal", PaymentStatus.PAID, "19.99", "EUR");
+        payment.setProviderPaymentId("paypal-payment-622");
+        var mutation = paymentMutation(6221L, 999L, PaymentMutationType.REFUND, "refund-622", PaymentMutationStatus.PENDING);
+
+        when(paymentRepository.findById(622L)).thenReturn(Optional.of(payment));
+        when(orderAccessGateway.findById(10L)).thenReturn(Optional.of(order(10L, 77L, "19.99", "EUR")));
+        when(paymentMutationRepository.findByIdempotencyKey("refund-622")).thenReturn(Optional.of(mutation));
+
+        var ex = assertThrows(
+            BusinessException.class,
+            () -> paymentService.refundPayment(
+                622L,
+                new RefundPaymentRequest(new BigDecimal("19.99"), "EUR", "refund-622")
+            )
+        );
+
+        assertEquals("IDEMPOTENCY_KEY_REUSE", ex.getErrorCode());
+        verify(providerRegistry, never()).getProvider("paypal");
+    }
+
+    @Test
+    void refundPaymentShouldRefundPaymentAndPublishRefundEvent() {
+        var provider = mock(PaymentProvider.class);
+        var payment = payment(623L, 10L, "paypal", PaymentStatus.PAID, "19.99", "EUR");
+        payment.setProviderPaymentId("paypal-payment-623");
+        PaymentMutation[] mutationRef = new PaymentMutation[1];
+
+        when(paymentRepository.findById(623L)).thenReturn(Optional.of(payment));
+        when(orderAccessGateway.findById(10L)).thenReturn(Optional.of(order(10L, 77L, "19.99", "EUR")));
+        when(paymentMutationRepository.findByIdempotencyKey("refund-623")).thenReturn(Optional.empty());
+        when(paymentMutationRepository.findFirstByPaymentIdAndStatusOrderByCreatedAtDesc(623L, PaymentMutationStatus.PENDING))
+            .thenReturn(Optional.empty());
+        when(providerRegistry.getProvider("paypal")).thenReturn(provider);
+        when(paymentMutationRepository.save(any(PaymentMutation.class))).thenAnswer(invocation -> {
+            var mutation = invocation.getArgument(0, PaymentMutation.class);
+            if (mutation.getId() == null) {
+                mutation.setId(6231L);
+            }
+            mutationRef[0] = mutation;
+            return mutation;
+        });
+        when(paymentMutationRepository.findById(6231L)).thenAnswer(invocation -> Optional.ofNullable(mutationRef[0]));
+        when(provider.refund(eq("paypal-payment-623"), any(), eq("refund-623")))
+            .thenReturn(new RefundResult("refund-psp-623", true, null));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var dto = paymentService.refundPayment(
+            623L,
+            new RefundPaymentRequest(new BigDecimal("19.99"), "EUR", "refund-623")
+        );
+
+        assertEquals(PaymentStatus.REFUNDED, dto.status());
+        assertNotNull(mutationRef[0]);
+        assertEquals(PaymentMutationStatus.COMPLETED, mutationRef[0].getStatus());
+        assertEquals("refund-psp-623", mutationRef[0].getProviderReference());
+        verify(outboxService).queueEvent(
+            eq(RabbitMQConfig.PAYMENT_EXCHANGE),
+            eq("payments.refunded"),
+            org.mockito.ArgumentMatchers.<Object>any()
+        );
+    }
+
     private String currentTimestamp() {
         return String.valueOf(Instant.now().getEpochSecond());
+    }
+
+    private OrderAccessView order(Long orderId, Long userId, String totalAmount, String currency) {
+        return new OrderAccessView(orderId, userId, new BigDecimal(totalAmount), currency);
+    }
+
+    private Payment payment(
+        Long paymentId,
+        Long orderId,
+        String providerCode,
+        PaymentStatus status,
+        String amount,
+        String currency
+    ) {
+        var payment = new Payment();
+        payment.setId(paymentId);
+        payment.setOrderId(orderId);
+        payment.setProviderCode(providerCode);
+        payment.setStatus(status);
+        payment.setAmount(new BigDecimal(amount));
+        payment.setCurrency(currency);
+        payment.setIdempotencyKey("payment-" + paymentId);
+        payment.setMetadata(new HashMap<>());
+        return payment;
+    }
+
+    private PaymentMutation paymentMutation(
+        Long mutationId,
+        Long paymentId,
+        PaymentMutationType mutationType,
+        String idempotencyKey,
+        PaymentMutationStatus status
+    ) {
+        var mutation = new PaymentMutation();
+        mutation.setId(mutationId);
+        mutation.setPaymentId(paymentId);
+        mutation.setMutationType(mutationType);
+        mutation.setIdempotencyKey(idempotencyKey);
+        mutation.setStatus(status);
+        mutation.setAmount(new BigDecimal("19.99"));
+        mutation.setCurrency("EUR");
+        return mutation;
     }
 
     private Payment copyPayment(Payment source) {

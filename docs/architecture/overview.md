@@ -165,9 +165,9 @@ classDiagram
         +getProviderCode() String
         +getSupportedCountries() Set~String~
         +createPayment(request) PaymentResult
-        +confirmPayment(paymentId) PaymentResult
-        +refund(paymentId, amount) RefundResult
-        +verifyWebhook(payload, signature) boolean
+        +confirmPayment(providerPaymentId, idempotencyKey) PaymentResult
+        +refund(providerPaymentId, amount, idempotencyKey) RefundResult
+        +verifyWebhook(payload, signature, timestamp) boolean
     }
 
     class ShippingProvider {
@@ -203,6 +203,7 @@ classDiagram
 ```
 
 Payment flow details: [payments-integration.md](payments-integration.md).
+- Contract endpoints: `POST /api/v1/payments`, `POST /api/v1/payments/{id}/confirm`, `POST /api/admin/payments/{id}/refund`, `POST /api/webhooks/payments/{provider}`.
 
 ---
 

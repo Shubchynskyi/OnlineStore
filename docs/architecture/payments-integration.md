@@ -29,7 +29,7 @@
 
 ### 1) Create payment (card or redirect)
 1. Client creates an order: `POST /api/v1/orders`.
-2. Client initiates payment: `POST /api/v1/payments` with `orderId`, `providerCode`, `returnUrl`.
+2. Client initiates payment: `POST /api/v1/payments` with `orderId`, `providerCode`, `amount`, `currency`, `returnUrl`, and `idempotencyKey`.
 3. Backend persists `Payment` in `PENDING` and commits (Phase 1 TX) — no provider call yet.
 4. Backend calls provider with `idempotencyKey` outside any DB transaction (Phase 2).
    - On provider failure: payment is marked `FAILED` in a separate transaction and the error is returned.
@@ -50,12 +50,20 @@
 4. Orders module updates `OrderStatus` based on payment outcome.
 
 ### 3) Capture or confirm (optional)
-- If provider supports authorize/capture, confirm or capture after stock reservation.
-- Keep capture idempotent and safe to retry.
+1. Client confirms an authorized payment via `POST /api/v1/payments/{id}/confirm` with `idempotencyKey`.
+2. Backend validates that the payment belongs to the current user, that the linked order total still matches the stored payment amount/currency, and that the payment is in `REQUIRES_ACTION` or `AUTHORIZED`.
+3. Backend persists a `payment_mutations` record for the `CONFIRM` operation and commits before any provider I/O.
+4. Backend calls the provider confirm/capture API with the same `idempotencyKey`.
+5. Backend applies the provider result in a separate transaction and emits the corresponding payment event (`payments.completed` or `payments.failed` when applicable) while preserving the legacy `payment.completed` event for existing consumers.
+6. Same-key retries reuse the durable mutation record; webhook updates remain idempotent and authoritative for eventual reconciliation.
 
 ### 4) Refund
-- Admin or automation triggers refund.
-- Backend calls provider API, then waits for webhook to finalize status.
+1. Admin or manager triggers a full refund via `POST /api/admin/payments/{id}/refund` with `amount`, `currency`, and `idempotencyKey`.
+2. Backend validates that the linked order still matches the stored payment amount/currency and that the refund amount exactly matches the captured payment.
+3. Backend persists a `payment_mutations` record for the `REFUND` operation and commits before calling the provider.
+4. Backend calls the provider refund API with the same `idempotencyKey`.
+5. On synchronous provider success, backend marks the payment `REFUNDED` and emits `payments.refunded`; later webhook notifications must remain replay-safe and consistent with the stored state.
+6. Same-key retries remain safe because the mutation record is durable and reused across retries/failures.
 
 ## Payment status model
 | Status | Meaning | Allowed next |
@@ -76,6 +84,7 @@ To retry after FAILED, create a new Payment record.
 - `status`, `amount`, `currency`
 - `idempotencyKey`, `failureReason`
 - `createdAt`, `updatedAt`
+- `payment_mutations`: one durable record per confirm/refund operation with `mutationType`, `idempotencyKey`, `status`, `amount`, `currency`, `providerReference`
 
 ## Webhooks and security
 - Verify signatures for every webhook.
@@ -85,17 +94,19 @@ To retry after FAILED, create a new Payment record.
 
 ## Idempotency and reliability
 - Use an idempotency key per create, confirm, and refund request.
+- Persist confirm/refund mutations in `payment_mutations` so retries can reuse the same durable operation record after provider or application failures.
+- Enforce at most one pending confirm/refund mutation per payment; different-key concurrent mutation attempts fail until the active operation resolves.
 - Use an outbox to publish payment events to RabbitMQ.
 - Orders, catalog, and payments now persist events in `outbox_events`; `OutboxPublisher` pushes pending records to RabbitMQ with retry/backoff and failure tracking.
 - Keep webhook processing idempotent and safe to retry.
 
 ## Events
 Publish domain events to RabbitMQ:
-- `payments.created`
 - `payments.authorized`
 - `payments.completed`
 - `payments.failed`
 - `payments.refunded`
+- legacy compatibility event: `payment.completed`
 
 ## Frontend integration
 - Web (Next.js): card SDK or hosted checkout, PayPal.

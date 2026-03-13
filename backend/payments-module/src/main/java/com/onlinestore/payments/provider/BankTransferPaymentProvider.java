@@ -31,7 +31,7 @@ public class BankTransferPaymentProvider implements PaymentProvider {
     }
 
     @Override
-    public PaymentResult confirmPayment(String providerPaymentId) {
+    public PaymentResult confirmPayment(String providerPaymentId, String idempotencyKey) {
         return new PaymentResult(
             providerPaymentId,
             PaymentResult.PaymentResultStatus.PAID,
@@ -42,7 +42,7 @@ public class BankTransferPaymentProvider implements PaymentProvider {
     }
 
     @Override
-    public RefundResult refund(String providerPaymentId, Money amount) {
+    public RefundResult refund(String providerPaymentId, Money amount, String idempotencyKey) {
         return new RefundResult("bank-transfer-refund-" + UUID.randomUUID(), true, null);
     }
 

@@ -21,7 +21,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 class FlywayMigrationTest {
 
-    private static final List<String> EXPECTED_MIGRATION_VERSIONS = List.of("1", "2", "3", "4", "5", "6", "7");
+    private static final List<String> EXPECTED_MIGRATION_VERSIONS = List.of("1", "2", "3", "4", "5", "6", "7", "8");
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17-alpine")
@@ -47,11 +47,16 @@ class FlywayMigrationTest {
         assertThat(extensionExists("uuid-ossp")).isTrue();
         assertThat(extensionExists("pg_trgm")).isTrue();
         assertThat(tableExists("payment_webhook_events")).isTrue();
+        assertThat(tableExists("payment_mutations")).isTrue();
         assertThat(tableExists("outbox_events")).isTrue();
         assertThat(tableExists("carts")).isTrue();
         assertThat(tableExists("product_attributes")).isTrue();
         assertThat(columnExists("product_images", "object_key")).isTrue();
         assertThat(indexExists("ux_payment_webhook_events_provider_event")).isTrue();
+        assertThat(indexExists("ux_payment_mutations_idempotency_key")).isTrue();
+        assertThat(indexExists("ux_payment_mutations_one_pending_per_payment")).isTrue();
+        assertThat(indexExists("idx_payment_mutations_payment_type_created_at")).isTrue();
+        assertThat(indexExists("idx_payment_mutations_payment_status")).isTrue();
         assertThat(indexExists("idx_outbox_events_status_next_attempt")).isTrue();
         assertThat(indexExists("idx_cart_items_product_variant_id")).isTrue();
         assertThat(indexExists("idx_product_attributes_product_id")).isTrue();

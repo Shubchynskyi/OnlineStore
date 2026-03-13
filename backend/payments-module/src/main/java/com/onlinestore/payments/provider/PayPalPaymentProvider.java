@@ -46,7 +46,7 @@ public class PayPalPaymentProvider implements PaymentProvider {
     }
 
     @Override
-    public PaymentResult confirmPayment(String providerPaymentId) {
+    public PaymentResult confirmPayment(String providerPaymentId, String idempotencyKey) {
         return new PaymentResult(
             providerPaymentId,
             PaymentResult.PaymentResultStatus.PAID,
@@ -57,7 +57,7 @@ public class PayPalPaymentProvider implements PaymentProvider {
     }
 
     @Override
-    public RefundResult refund(String providerPaymentId, Money amount) {
+    public RefundResult refund(String providerPaymentId, Money amount, String idempotencyKey) {
         return new RefundResult("refund-" + UUID.randomUUID(), true, null);
     }
 

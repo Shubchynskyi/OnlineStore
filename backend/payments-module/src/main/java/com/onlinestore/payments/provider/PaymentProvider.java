@@ -11,9 +11,9 @@ public interface PaymentProvider {
 
     PaymentResult createPayment(PaymentRequest request);
 
-    PaymentResult confirmPayment(String providerPaymentId);
+    PaymentResult confirmPayment(String providerPaymentId, String idempotencyKey);
 
-    RefundResult refund(String providerPaymentId, Money amount);
+    RefundResult refund(String providerPaymentId, Money amount, String idempotencyKey);
 
     boolean verifyWebhook(String payload, String signature, String timestamp);
 }

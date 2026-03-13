@@ -240,8 +240,8 @@ Payment flow, webhooks, and status model: [../architecture/payments-integration.
       String getProviderCode();
       Set<String> getSupportedCountries();
       PaymentResult createPayment(PaymentRequest request);
-      PaymentResult confirmPayment(String paymentId);
-      RefundResult refund(String paymentId, Money amount);
+      PaymentResult confirmPayment(String paymentId, String idempotencyKey);
+      RefundResult refund(String paymentId, Money amount, String idempotencyKey);
       boolean verifyWebhook(String payload, String signature, String timestamp);
   }
   ```
@@ -260,13 +260,15 @@ Payment flow, webhooks, and status model: [../architecture/payments-integration.
       public PaymentProvider getProviderForCountry(String countryCode) { ... }
   }
   ```
-- [ ] **Entities**: `Payment`, `PaymentStatus`, `PaymentProviderConfig`
+- [ ] **Entities**: `Payment`, `PaymentStatus`, `PaymentProviderConfig`, `PaymentMutation`
 - [ ] **Webhook Controller**: `/api/webhooks/payments/{provider}`
 - [ ] **Create Payment Contract**: `POST /api/v1/payments` requires `orderId`, `providerCode`, `amount`, `currency`, `returnUrl`, and `idempotencyKey`
-- [ ] **Idempotency**: persist idempotency keys for create/confirm/refund
+- [ ] **Confirm Payment Contract**: `POST /api/v1/payments/{id}/confirm` requires `idempotencyKey` and validates current-user order ownership before provider capture
+- [ ] **Refund Contract**: `POST /api/admin/payments/{id}/refund` requires `amount`, `currency`, `idempotencyKey`, and admin/manager authorization
+- [ ] **Idempotency**: persist create idempotency on `payments` and confirm/refund idempotency in durable `payment_mutations`
 - [ ] **Webhook Security**: require signature + `X-Webhook-Timestamp` freshness window, and persist replay guard with unique `(provider_code, event_id)` constraint
 - [ ] **Payment Integrity**: server-side order ownership and amount/currency validation before provider call
-- [ ] **Outbox**: publish payment events via outbox table
+- [ ] **Outbox**: publish `payments.authorized`, `payments.completed`, `payments.failed`, and `payments.refunded` via outbox table (while preserving legacy `payment.completed`)
 
 ### 3.3 Shipping Module (Plugin Architecture)
 - [ ] **Interface**:

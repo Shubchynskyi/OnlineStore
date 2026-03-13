@@ -7,18 +7,26 @@ import com.onlinestore.common.exception.ResourceNotFoundException;
 import com.onlinestore.common.port.orders.OrderAccessGateway;
 import com.onlinestore.common.port.orders.OrderAccessView;
 import com.onlinestore.common.util.Money;
+import com.onlinestore.payments.dto.ConfirmPaymentRequest;
 import com.onlinestore.payments.dto.InitiatePaymentRequest;
 import com.onlinestore.payments.dto.PaymentDTO;
+import com.onlinestore.payments.dto.RefundPaymentRequest;
 import com.onlinestore.payments.entity.Payment;
-import com.onlinestore.payments.entity.PaymentWebhookEvent;
+import com.onlinestore.payments.entity.PaymentMutation;
+import com.onlinestore.payments.entity.PaymentMutationStatus;
+import com.onlinestore.payments.entity.PaymentMutationType;
 import com.onlinestore.payments.entity.PaymentStatus;
+import com.onlinestore.payments.entity.PaymentWebhookEvent;
 import com.onlinestore.payments.mapper.PaymentMapper;
 import com.onlinestore.payments.provider.PaymentProvider;
 import com.onlinestore.payments.provider.PaymentRequest;
 import com.onlinestore.payments.provider.PaymentResult;
+import com.onlinestore.payments.provider.RefundResult;
 import com.onlinestore.payments.registry.PaymentProviderRegistry;
+import com.onlinestore.payments.repository.PaymentMutationRepository;
 import com.onlinestore.payments.repository.PaymentRepository;
 import com.onlinestore.payments.repository.PaymentWebhookEventRepository;
+import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.HashMap;
@@ -28,12 +36,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -52,12 +61,25 @@ public class PaymentService {
         "payments_idempotency_key_key",
         "ux_payments_active_attempt_per_order_provider"
     );
+    private static final List<String> PAYMENT_MUTATION_IDEMPOTENCY_CONSTRAINT_MARKERS = List.of(
+        "payment_mutations_idempotency_key_key",
+        "ux_payment_mutations_idempotency_key"
+    );
+    private static final List<String> PAYMENT_MUTATION_PENDING_CONSTRAINT_MARKERS = List.of(
+        "ux_payment_mutations_one_pending_per_payment"
+    );
     private static final String METADATA_INITIATED_BY_USER_ID = "initiatedByUserId";
     private static final String METADATA_NEXT_ACTION_URL = "nextActionUrl";
+    private static final String LEGACY_PAYMENT_COMPLETED_EVENT = "payment.completed";
+    private static final String PAYMENT_AUTHORIZED_EVENT = "payments.authorized";
+    private static final String PAYMENT_COMPLETED_EVENT = "payments.completed";
+    private static final String PAYMENT_FAILED_EVENT = "payments.failed";
+    private static final String PAYMENT_REFUNDED_EVENT = "payments.refunded";
     private static final String WEBHOOK_EVENT_UNIQUE_CONSTRAINT = "ux_payment_webhook_events_provider_event";
     private static final long MAX_WEBHOOK_CLOCK_SKEW_SECONDS = 30;
 
     private final PaymentRepository paymentRepository;
+    private final PaymentMutationRepository paymentMutationRepository;
     private final PaymentWebhookEventRepository webhookEventRepository;
     private final OrderAccessGateway orderAccessGateway;
     private final PaymentProviderRegistry providerRegistry;
@@ -71,6 +93,7 @@ public class PaymentService {
 
     public PaymentService(
         PaymentRepository paymentRepository,
+        PaymentMutationRepository paymentMutationRepository,
         PaymentWebhookEventRepository webhookEventRepository,
         OrderAccessGateway orderAccessGateway,
         PaymentProviderRegistry providerRegistry,
@@ -80,6 +103,7 @@ public class PaymentService {
         TransactionTemplate transactionTemplate
     ) {
         this.paymentRepository = paymentRepository;
+        this.paymentMutationRepository = paymentMutationRepository;
         this.webhookEventRepository = webhookEventRepository;
         this.orderAccessGateway = orderAccessGateway;
         this.providerRegistry = providerRegistry;
@@ -102,7 +126,6 @@ public class PaymentService {
         String providerCode = normalizeProviderCode(request.providerCode());
         String idempotencyKey = normalizeIdempotencyKey(request.idempotencyKey());
 
-        // Phase 1: Validate, check idempotency, persist PENDING record. Commits before PSP call.
         var initResult = transactionTemplate.execute(
             status -> preparePaymentRecord(userId, providerCode, idempotencyKey, request)
         );
@@ -114,9 +137,6 @@ public class PaymentService {
         Payment pending = initResult.payment();
         var provider = initResult.provider();
 
-        // Phase 2: External PSP call — intentionally outside any DB transaction.
-        // If the PSP call fails, the PENDING record is marked FAILED so it is not left as
-        // an unresolved orphan that could block future payment attempts for the same order.
         PaymentResult providerResult;
         try {
             providerResult = provider.createPayment(new PaymentRequest(
@@ -127,14 +147,14 @@ public class PaymentService {
                 Map.of("paymentId", pending.getId().toString())
             ));
         } catch (RuntimeException ex) {
+            String failureReason = resolveFailureReason(ex.getMessage(), "Provider payment request failed");
             transactionTemplate.execute(status -> {
-                markPaymentFailedById(pending.getId());
+                markPaymentFailedById(pending.getId(), failureReason);
                 return null;
             });
             throw ex;
         }
 
-        // Phase 3: Apply PSP result in a separate transaction.
         Payment completed = transactionTemplate.execute(
             status -> applyProviderResult(pending, providerResult)
         );
@@ -146,7 +166,95 @@ public class PaymentService {
             completed.getProviderCode(),
             completed.getStatus());
 
-        return paymentMapper.toDto(completed, providerResult.nextActionUrl());
+        return paymentMapper.toDto(completed, readNextActionUrl(completed));
+    }
+
+    public PaymentDTO confirmPayment(Long userId, Long paymentId, ConfirmPaymentRequest request) {
+        String idempotencyKey = normalizeIdempotencyKey(request.idempotencyKey());
+
+        var mutationStart = transactionTemplate.execute(
+            status -> prepareConfirmMutation(userId, paymentId, idempotencyKey)
+        );
+        Objects.requireNonNull(mutationStart, "Payment confirmation produced null result");
+        if (mutationStart.isEarlyReturn()) {
+            return mutationStart.dto();
+        }
+
+        Payment payment = mutationStart.payment();
+        PaymentMutation mutation = mutationStart.mutation();
+        PaymentProvider provider = mutationStart.provider();
+
+        PaymentResult providerResult;
+        try {
+            providerResult = provider.confirmPayment(requireProviderPaymentId(payment), idempotencyKey);
+        } catch (RuntimeException ex) {
+            String failureReason = resolveFailureReason(ex.getMessage(), "Provider confirmation request failed");
+            transactionTemplate.execute(status -> {
+                markMutationFailedById(mutation.getId(), failureReason);
+                return null;
+            });
+            throw ex;
+        }
+
+        Payment confirmed = transactionTemplate.execute(
+            status -> applyConfirmMutation(mutation.getId(), providerResult)
+        );
+        Objects.requireNonNull(confirmed, "Failed to apply confirmation result to payment");
+        log.info("Payment confirmed: paymentId={}, orderId={}, userId={}, provider={}, status={}",
+            confirmed.getId(),
+            confirmed.getOrderId(),
+            userId,
+            confirmed.getProviderCode(),
+            confirmed.getStatus());
+
+        return paymentMapper.toDto(confirmed, readNextActionUrl(confirmed));
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public PaymentDTO refundPayment(Long paymentId, RefundPaymentRequest request) {
+        String idempotencyKey = normalizeIdempotencyKey(request.idempotencyKey());
+
+        var mutationStart = transactionTemplate.execute(
+            status -> prepareRefundMutation(paymentId, request, idempotencyKey)
+        );
+        Objects.requireNonNull(mutationStart, "Payment refund produced null result");
+        if (mutationStart.isEarlyReturn()) {
+            return mutationStart.dto();
+        }
+
+        Payment payment = mutationStart.payment();
+        PaymentMutation mutation = mutationStart.mutation();
+        PaymentProvider provider = mutationStart.provider();
+        Money refundAmount = Money.of(mutation.getAmount(), mutation.getCurrency());
+
+        RefundResult refundResult;
+        try {
+            refundResult = provider.refund(requireProviderPaymentId(payment), refundAmount, idempotencyKey);
+        } catch (RuntimeException ex) {
+            String failureReason = resolveFailureReason(ex.getMessage(), "Provider refund request failed");
+            transactionTemplate.execute(status -> {
+                markMutationFailedById(mutation.getId(), failureReason);
+                return null;
+            });
+            throw ex;
+        }
+
+        RefundApplicationResult refundOutcome = transactionTemplate.execute(
+            status -> applyRefundMutation(mutation.getId(), refundResult)
+        );
+        Objects.requireNonNull(refundOutcome, "Failed to apply refund result");
+        if (!refundOutcome.successful()) {
+            throw new BusinessException("REFUND_FAILED", refundOutcome.failureReason());
+        }
+
+        Payment refunded = refundOutcome.payment();
+        log.info("Payment refunded: paymentId={}, orderId={}, provider={}, status={}",
+            refunded.getId(),
+            refunded.getOrderId(),
+            refunded.getProviderCode(),
+            refunded.getStatus());
+
+        return paymentMapper.toDto(refunded, readNextActionUrl(refunded));
     }
 
     @Transactional
@@ -185,15 +293,15 @@ public class PaymentService {
 
     @Transactional
     public void updatePaymentStatus(Long paymentId, PaymentStatus newStatus) {
-        var payment = paymentRepository.findById(paymentId)
-            .orElseThrow(() -> new ResourceNotFoundException("Payment", "id", paymentId));
+        var payment = findPayment(paymentId);
         updatePaymentStatus(payment, newStatus);
     }
 
-    // --- Private helpers ---
-
     private InitiationResult preparePaymentRecord(
-        Long userId, String providerCode, String idempotencyKey, InitiatePaymentRequest request
+        Long userId,
+        String providerCode,
+        String idempotencyKey,
+        InitiatePaymentRequest request
     ) {
         var order = orderAccessGateway.findByIdAndUserId(request.orderId(), userId)
             .orElseThrow(() -> new BusinessException(
@@ -231,7 +339,7 @@ public class PaymentService {
         payment.setOrderId(request.orderId());
         payment.setProviderCode(providerCode);
         payment.setAmount(order.totalAmount());
-        payment.setCurrency(order.totalCurrency());
+        payment.setCurrency(normalizeCurrency(order.totalCurrency()));
         payment.setIdempotencyKey(idempotencyKey);
         payment.setStatus(PaymentStatus.PENDING);
         payment.setMetadata(new HashMap<>(Map.of(METADATA_INITIATED_BY_USER_ID, userId)));
@@ -247,16 +355,224 @@ public class PaymentService {
         return InitiationResult.newPayment(saved, provider);
     }
 
-    private Payment applyProviderResult(Payment pending, PaymentResult result) {
-        pending.setProviderPaymentId(result.providerPaymentId());
-        pending.setStatus(mapStatus(result.status()));
-        pending.setFailureReason(result.failureReason());
-        storeNextActionUrl(pending, result.nextActionUrl());
+    private MutationPreparationResult prepareConfirmMutation(Long userId, Long paymentId, String idempotencyKey) {
+        var payment = findPayment(paymentId);
+        var order = orderAccessGateway.findByIdAndUserId(payment.getOrderId(), userId)
+            .orElseThrow(() -> new BusinessException(
+                "ACCESS_DENIED",
+                "Order is not available for current user"
+            ));
+        validatePaymentAgainstOrder(payment, order);
+
+        MutationPreparationResult existingMutation = resolveExistingMutation(payment, PaymentMutationType.CONFIRM, idempotencyKey);
+        if (existingMutation != null) {
+            return existingMutation;
+        }
+        MutationPreparationResult pendingMutation = resolvePendingMutationConflict(
+            payment,
+            PaymentMutationType.CONFIRM,
+            idempotencyKey
+        );
+        if (pendingMutation != null) {
+            return pendingMutation;
+        }
+
+        validateConfirmable(payment);
+        return persistMutationStart(
+            payment,
+            PaymentMutationType.CONFIRM,
+            idempotencyKey,
+            payment.getAmount(),
+            payment.getCurrency()
+        );
+    }
+
+    private MutationPreparationResult prepareRefundMutation(
+        Long paymentId,
+        RefundPaymentRequest request,
+        String idempotencyKey
+    ) {
+        var payment = findPayment(paymentId);
+        var order = orderAccessGateway.findById(payment.getOrderId())
+            .orElseThrow(() -> new ResourceNotFoundException("Order", "id", payment.getOrderId()));
+        validateFullRefundRequest(payment, order, request);
+
+        MutationPreparationResult existingMutation = resolveExistingMutation(payment, PaymentMutationType.REFUND, idempotencyKey);
+        if (existingMutation != null) {
+            return existingMutation;
+        }
+        MutationPreparationResult pendingMutation = resolvePendingMutationConflict(
+            payment,
+            PaymentMutationType.REFUND,
+            idempotencyKey
+        );
+        if (pendingMutation != null) {
+            return pendingMutation;
+        }
+
+        validateRefundable(payment);
+        return persistMutationStart(
+            payment,
+            PaymentMutationType.REFUND,
+            idempotencyKey,
+            request.amount(),
+            normalizeCurrency(request.currency())
+        );
+    }
+
+    private MutationPreparationResult resolveExistingMutation(
+        Payment payment,
+        PaymentMutationType mutationType,
+        String idempotencyKey
+    ) {
+        var existingMutation = paymentMutationRepository.findByIdempotencyKey(idempotencyKey);
+        if (existingMutation.isEmpty()) {
+            return null;
+        }
+
+        var mutation = existingMutation.get();
+        validateMutationScope(mutation, payment.getId(), mutationType);
+
+        if (mutation.getStatus() == PaymentMutationStatus.COMPLETED) {
+            log.info("Idempotent {} replay: mutationId={}, paymentId={}",
+                mutationType.name().toLowerCase(Locale.ROOT),
+                mutation.getId(),
+                payment.getId());
+            return MutationPreparationResult.earlyReturn(paymentMapper.toDto(payment, readNextActionUrl(payment)));
+        }
+        if (mutation.getStatus() == PaymentMutationStatus.FAILED) {
+            throw mutationFailedException(mutation);
+        }
+
+        log.info("Resuming pending {} mutation: mutationId={}, paymentId={}",
+            mutationType.name().toLowerCase(Locale.ROOT),
+            mutation.getId(),
+            payment.getId());
+        return MutationPreparationResult.start(payment, mutation, providerRegistry.getProvider(payment.getProviderCode()));
+    }
+
+    private MutationPreparationResult persistMutationStart(
+        Payment payment,
+        PaymentMutationType mutationType,
+        String idempotencyKey,
+        BigDecimal amount,
+        String currency
+    ) {
+        var provider = providerRegistry.getProvider(payment.getProviderCode());
+        var mutation = newMutation(payment, mutationType, idempotencyKey, amount, currency);
         try {
-            return paymentRepository.save(pending);
+            return MutationPreparationResult.start(payment, paymentMutationRepository.save(mutation), provider);
+        } catch (DataIntegrityViolationException ex) {
+            return handleConcurrentMutationStart(payment, mutationType, idempotencyKey, ex);
+        }
+    }
+
+    private MutationPreparationResult resolvePendingMutationConflict(
+        Payment payment,
+        PaymentMutationType mutationType,
+        String idempotencyKey
+    ) {
+        var pendingMutation = paymentMutationRepository.findFirstByPaymentIdAndStatusOrderByCreatedAtDesc(
+            payment.getId(),
+            PaymentMutationStatus.PENDING
+        );
+        if (pendingMutation.isEmpty()) {
+            return null;
+        }
+
+        return reuseOrRejectPendingMutation(payment, mutationType, idempotencyKey, pendingMutation.get(), "existing");
+    }
+
+    private MutationPreparationResult handleConcurrentMutationStart(
+        Payment payment,
+        PaymentMutationType mutationType,
+        String idempotencyKey,
+        DataIntegrityViolationException ex
+    ) {
+        if (hasConstraintMarker(ex, PAYMENT_MUTATION_IDEMPOTENCY_CONSTRAINT_MARKERS)) {
+            return resumeMutationByIdempotencyKey(payment, mutationType, idempotencyKey, ex);
+        }
+        if (hasConstraintMarker(ex, PAYMENT_MUTATION_PENDING_CONSTRAINT_MARKERS)) {
+            var pendingMutation = paymentMutationRepository.findFirstByPaymentIdAndStatusOrderByCreatedAtDesc(
+                payment.getId(),
+                PaymentMutationStatus.PENDING
+            );
+            if (pendingMutation.isPresent()) {
+                return reuseOrRejectPendingMutation(
+                    payment,
+                    mutationType,
+                    idempotencyKey,
+                    pendingMutation.get(),
+                    "concurrent insert"
+                );
+            }
+        }
+        throw ex;
+    }
+
+    private MutationPreparationResult resumeMutationByIdempotencyKey(
+        Payment payment,
+        PaymentMutationType mutationType,
+        String idempotencyKey,
+        DataIntegrityViolationException ex
+    ) {
+        var concurrentMutation = paymentMutationRepository.findByIdempotencyKey(idempotencyKey)
+            .orElseThrow(() -> ex);
+        validateMutationScope(concurrentMutation, payment.getId(), mutationType);
+        if (concurrentMutation.getStatus() == PaymentMutationStatus.FAILED) {
+            throw mutationFailedException(concurrentMutation);
+        }
+        if (concurrentMutation.getStatus() == PaymentMutationStatus.COMPLETED) {
+            return MutationPreparationResult.earlyReturn(paymentMapper.toDto(payment, readNextActionUrl(payment)));
+        }
+
+        log.info("Idempotent {} replay after concurrent insert: mutationId={}, paymentId={}",
+            mutationType.name().toLowerCase(Locale.ROOT),
+            concurrentMutation.getId(),
+            payment.getId());
+        return MutationPreparationResult.start(
+            payment,
+            concurrentMutation,
+            providerRegistry.getProvider(payment.getProviderCode())
+        );
+    }
+
+    private MutationPreparationResult reuseOrRejectPendingMutation(
+        Payment payment,
+        PaymentMutationType mutationType,
+        String idempotencyKey,
+        PaymentMutation pendingMutation,
+        String source
+    ) {
+        if (pendingMutation.getMutationType() != mutationType) {
+            throw mutationInProgressException(pendingMutation);
+        }
+        if (!Objects.equals(pendingMutation.getIdempotencyKey(), idempotencyKey)) {
+            throw mutationInProgressException(pendingMutation);
+        }
+
+        log.info("Resuming {} pending {} mutation: mutationId={}, paymentId={}",
+            source,
+            mutationType.name().toLowerCase(Locale.ROOT),
+            pendingMutation.getId(),
+            payment.getId());
+        return MutationPreparationResult.start(
+            payment,
+            pendingMutation,
+            providerRegistry.getProvider(payment.getProviderCode())
+        );
+    }
+
+    private Payment applyProviderResult(Payment pending, PaymentResult result) {
+        try {
+            return persistPaymentState(
+                pending,
+                mapStatus(result.status()),
+                result.providerPaymentId(),
+                result.failureReason(),
+                result.nextActionUrl()
+            );
         } catch (ObjectOptimisticLockingFailureException ex) {
-            // A webhook concurrently updated the payment between Phase 1 and Phase 3.
-            // Return the current committed state; the webhook has applied the authoritative status.
             log.warn("Optimistic lock conflict applying provider result: paymentId={}, returning current state",
                 pending.getId());
             return paymentRepository.findById(pending.getId())
@@ -264,37 +580,150 @@ public class PaymentService {
         }
     }
 
-    private void markPaymentFailedById(Long paymentId) {
+    private Payment applyConfirmMutation(Long mutationId, PaymentResult result) {
+        var mutation = paymentMutationRepository.findById(mutationId)
+            .orElseThrow(() -> new ResourceNotFoundException("PaymentMutation", "id", mutationId));
+        var payment = findPayment(mutation.getPaymentId());
+
+        Payment savedPayment;
+        try {
+            savedPayment = persistPaymentState(
+                payment,
+                mapStatus(result.status()),
+                result.providerPaymentId(),
+                result.failureReason(),
+                result.nextActionUrl()
+            );
+        } catch (ObjectOptimisticLockingFailureException ex) {
+            log.warn("Optimistic lock conflict applying confirmation result: mutationId={}, paymentId={}",
+                mutationId,
+                payment.getId());
+            savedPayment = paymentRepository.findById(payment.getId())
+                .orElseThrow(() -> ex);
+        }
+
+        mutation.setStatus(PaymentMutationStatus.COMPLETED);
+        mutation.setProviderReference(firstNonBlank(result.providerPaymentId(), payment.getProviderPaymentId()));
+        mutation.setFailureReason(result.failureReason());
+        paymentMutationRepository.save(mutation);
+        return savedPayment;
+    }
+
+    private RefundApplicationResult applyRefundMutation(Long mutationId, RefundResult result) {
+        var mutation = paymentMutationRepository.findById(mutationId)
+            .orElseThrow(() -> new ResourceNotFoundException("PaymentMutation", "id", mutationId));
+        var payment = findPayment(mutation.getPaymentId());
+        String failureReason = resolveFailureReason(result.failureReason(), "Provider refund request failed");
+
+        if (!result.success()) {
+            mutation.setStatus(PaymentMutationStatus.FAILED);
+            mutation.setProviderReference(result.refundId());
+            mutation.setFailureReason(failureReason);
+            paymentMutationRepository.save(mutation);
+            return new RefundApplicationResult(payment, false, failureReason);
+        }
+
+        Payment savedPayment;
+        try {
+            savedPayment = persistPaymentState(payment, PaymentStatus.REFUNDED, null, null, null);
+        } catch (ObjectOptimisticLockingFailureException ex) {
+            log.warn("Optimistic lock conflict applying refund result: mutationId={}, paymentId={}",
+                mutationId,
+                payment.getId());
+            savedPayment = paymentRepository.findById(payment.getId())
+                .orElseThrow(() -> ex);
+        }
+
+        mutation.setStatus(PaymentMutationStatus.COMPLETED);
+        mutation.setProviderReference(result.refundId());
+        mutation.setFailureReason(null);
+        paymentMutationRepository.save(mutation);
+        return new RefundApplicationResult(savedPayment, true, null);
+    }
+
+    private void markPaymentFailedById(Long paymentId, String failureReason) {
         paymentRepository.findById(paymentId).ifPresent(payment -> {
             if (payment.getStatus() == PaymentStatus.PENDING) {
-                payment.setStatus(PaymentStatus.FAILED);
-                paymentRepository.save(payment);
+                persistPaymentState(payment, PaymentStatus.FAILED, null, failureReason, null);
+            }
+        });
+    }
+
+    private void markMutationFailedById(Long mutationId, String failureReason) {
+        paymentMutationRepository.findById(mutationId).ifPresent(mutation -> {
+            if (mutation.getStatus() == PaymentMutationStatus.PENDING) {
+                mutation.setStatus(PaymentMutationStatus.FAILED);
+                mutation.setFailureReason(failureReason);
+                paymentMutationRepository.save(mutation);
             }
         });
     }
 
     private void updatePaymentStatus(Payment payment, PaymentStatus newStatus) {
-        var previousStatus = payment.getStatus();
+        String failureReason = newStatus == PaymentStatus.FAILED ? payment.getFailureReason() : null;
+        persistPaymentState(payment, newStatus, null, failureReason, null);
+    }
+
+    private Payment persistPaymentState(
+        Payment payment,
+        PaymentStatus newStatus,
+        String providerPaymentId,
+        String failureReason,
+        String nextActionUrl
+    ) {
+        PaymentStatus previousStatus = payment.getStatus();
+        if (providerPaymentId != null && !providerPaymentId.isBlank()) {
+            payment.setProviderPaymentId(providerPaymentId);
+        }
+        payment.setFailureReason(failureReason);
+        updateNextActionUrl(payment, newStatus, nextActionUrl);
+
+        if (previousStatus != newStatus) {
+            previousStatus.validateTransition(newStatus);
+            payment.setStatus(newStatus);
+        }
+
+        Payment saved = paymentRepository.save(payment);
+        if (previousStatus != newStatus) {
+            log.info("Payment status updated: paymentId={}, from={}, to={}",
+                saved.getId(),
+                previousStatus,
+                newStatus);
+            publishLifecycleEvents(saved, previousStatus, newStatus);
+        }
+        return saved;
+    }
+
+    private void publishLifecycleEvents(Payment payment, PaymentStatus previousStatus, PaymentStatus newStatus) {
         if (previousStatus == newStatus) {
-            paymentRepository.save(payment);
             return;
         }
-        previousStatus.validateTransition(newStatus);
 
-        payment.setStatus(newStatus);
-        var saved = paymentRepository.save(payment);
-        log.info("Payment status updated: paymentId={}, from={}, to={}",
-            saved.getId(),
-            previousStatus,
-            newStatus);
-
-        if (newStatus == PaymentStatus.PAID && previousStatus != PaymentStatus.PAID) {
+        String lifecycleRoutingKey = lifecycleRoutingKey(newStatus);
+        if (lifecycleRoutingKey != null) {
             outboxService.queueEvent(
                 RabbitMQConfig.PAYMENT_EXCHANGE,
-                "payment.completed",
-                paymentMapper.toEvent(saved)
+                lifecycleRoutingKey,
+                paymentMapper.toStatusChangedEvent(payment, lifecycleRoutingKey)
             );
         }
+        if (newStatus == PaymentStatus.PAID) {
+            outboxService.queueEvent(
+                RabbitMQConfig.PAYMENT_EXCHANGE,
+                LEGACY_PAYMENT_COMPLETED_EVENT,
+                paymentMapper.toCompletedEvent(payment)
+            );
+        }
+    }
+
+    private String lifecycleRoutingKey(PaymentStatus status) {
+        return switch (status) {
+            case AUTHORIZED -> PAYMENT_AUTHORIZED_EVENT;
+            case PAID -> PAYMENT_COMPLETED_EVENT;
+            case FAILED -> PAYMENT_FAILED_EVENT;
+            case REFUNDED -> PAYMENT_REFUNDED_EVENT;
+            default -> null;
+        };
     }
 
     private PaymentStatus mapStatus(PaymentResult.PaymentResultStatus resultStatus) {
@@ -309,11 +738,25 @@ public class PaymentService {
 
     private void validateRequestedAmount(InitiatePaymentRequest request, OrderAccessView order) {
         if (request.amount().compareTo(order.totalAmount()) != 0
-            || !Objects.equals(
-            request.currency().toUpperCase(Locale.ROOT),
-            order.totalCurrency().toUpperCase(Locale.ROOT)
-        )) {
+            || !sameCurrency(request.currency(), order.totalCurrency())) {
             throw new BusinessException("AMOUNT_MISMATCH", "Payment amount does not match order total");
+        }
+    }
+
+    private void validatePaymentAgainstOrder(Payment payment, OrderAccessView order) {
+        if (payment.getAmount().compareTo(order.totalAmount()) != 0
+            || !sameCurrency(payment.getCurrency(), order.totalCurrency())) {
+            throw new BusinessException("AMOUNT_MISMATCH", "Payment amount does not match order total");
+        }
+    }
+
+    private void validateFullRefundRequest(Payment payment, OrderAccessView order, RefundPaymentRequest request) {
+        String requestedCurrency = normalizeCurrency(request.currency());
+        if (payment.getAmount().compareTo(request.amount()) != 0
+            || order.totalAmount().compareTo(request.amount()) != 0
+            || !sameCurrency(payment.getCurrency(), requestedCurrency)
+            || !sameCurrency(order.totalCurrency(), requestedCurrency)) {
+            throw new BusinessException("AMOUNT_MISMATCH", "Refund amount must match the original payment amount");
         }
     }
 
@@ -342,6 +785,76 @@ public class PaymentService {
         }
     }
 
+    private void validateMutationScope(PaymentMutation mutation, Long paymentId, PaymentMutationType mutationType) {
+        if (!Objects.equals(mutation.getPaymentId(), paymentId) || mutation.getMutationType() != mutationType) {
+            throw new BusinessException(
+                "IDEMPOTENCY_KEY_REUSE",
+                "Idempotency key is already used for another payment operation"
+            );
+        }
+    }
+
+    private void validateConfirmable(Payment payment) {
+        if (payment.getStatus() != PaymentStatus.REQUIRES_ACTION && payment.getStatus() != PaymentStatus.AUTHORIZED) {
+            throw invalidMutationState(PaymentMutationType.CONFIRM, payment.getStatus());
+        }
+    }
+
+    private void validateRefundable(Payment payment) {
+        if (payment.getStatus() != PaymentStatus.PAID) {
+            throw invalidMutationState(PaymentMutationType.REFUND, payment.getStatus());
+        }
+    }
+
+    private BusinessException invalidMutationState(PaymentMutationType mutationType, PaymentStatus status) {
+        return new BusinessException(
+            "INVALID_PAYMENT_STATE",
+            "Payment status " + status + " does not allow " + mutationType.name().toLowerCase(Locale.ROOT)
+        );
+    }
+
+    private BusinessException mutationInProgressException(PaymentMutation mutation) {
+        return new BusinessException(
+            "PAYMENT_MUTATION_IN_PROGRESS",
+            "Payment already has a pending " + mutation.getMutationType().name().toLowerCase(Locale.ROOT) + " operation"
+        );
+    }
+
+    private Payment findPayment(Long paymentId) {
+        return paymentRepository.findById(paymentId)
+            .orElseThrow(() -> new ResourceNotFoundException("Payment", "id", paymentId));
+    }
+
+    private String requireProviderPaymentId(Payment payment) {
+        if (payment.getProviderPaymentId() == null || payment.getProviderPaymentId().isBlank()) {
+            throw new BusinessException("PAYMENT_NOT_READY", "Payment has no provider reference yet");
+        }
+        return payment.getProviderPaymentId();
+    }
+
+    private PaymentMutation newMutation(
+        Payment payment,
+        PaymentMutationType mutationType,
+        String idempotencyKey,
+        BigDecimal amount,
+        String currency
+    ) {
+        var mutation = new PaymentMutation();
+        mutation.setPaymentId(payment.getId());
+        mutation.setMutationType(mutationType);
+        mutation.setStatus(PaymentMutationStatus.PENDING);
+        mutation.setIdempotencyKey(idempotencyKey);
+        mutation.setAmount(amount);
+        mutation.setCurrency(normalizeCurrency(currency));
+        return mutation;
+    }
+
+    private BusinessException mutationFailedException(PaymentMutation mutation) {
+        String action = mutation.getMutationType().name().toLowerCase(Locale.ROOT);
+        String failureReason = resolveFailureReason(mutation.getFailureReason(), "Previous mutation attempt failed");
+        return new BusinessException("PAYMENT_MUTATION_FAILED", "Previous " + action + " request failed: " + failureReason);
+    }
+
     private String normalizeProviderCode(String rawProviderCode) {
         if (rawProviderCode == null) {
             throw new BusinessException("INVALID_PROVIDER", "Provider code is required");
@@ -364,16 +877,35 @@ public class PaymentService {
         return normalized;
     }
 
-    private void storeNextActionUrl(Payment payment, String nextActionUrl) {
-        if (nextActionUrl == null || nextActionUrl.isBlank()) {
-            return;
+    private String normalizeCurrency(String rawCurrency) {
+        if (rawCurrency == null) {
+            throw new BusinessException("INVALID_CURRENCY", "Currency is required");
         }
+        String normalized = rawCurrency.trim().toUpperCase(Locale.ROOT);
+        if (normalized.length() != 3) {
+            throw new BusinessException("INVALID_CURRENCY", "Currency must be a 3-letter code");
+        }
+        return normalized;
+    }
+
+    private boolean sameCurrency(String firstCurrency, String secondCurrency) {
+        return Objects.equals(normalizeCurrency(firstCurrency), normalizeCurrency(secondCurrency));
+    }
+
+    private void updateNextActionUrl(Payment payment, PaymentStatus newStatus, String nextActionUrl) {
         var metadata = payment.getMetadata();
         if (metadata == null) {
             metadata = new HashMap<>();
             payment.setMetadata(metadata);
         }
-        metadata.put(METADATA_NEXT_ACTION_URL, nextActionUrl);
+
+        if (nextActionUrl != null && !nextActionUrl.isBlank()) {
+            metadata.put(METADATA_NEXT_ACTION_URL, nextActionUrl);
+            return;
+        }
+        if (newStatus != PaymentStatus.REQUIRES_ACTION) {
+            metadata.remove(METADATA_NEXT_ACTION_URL);
+        }
     }
 
     private String readNextActionUrl(Payment payment) {
@@ -497,6 +1029,20 @@ public class PaymentService {
         return paymentMapper.toDto(concurrentPayment, readNextActionUrl(concurrentPayment));
     }
 
+    private String firstNonBlank(String primaryValue, String fallbackValue) {
+        if (primaryValue != null && !primaryValue.isBlank()) {
+            return primaryValue;
+        }
+        return fallbackValue;
+    }
+
+    private String resolveFailureReason(String candidate, String fallback) {
+        if (candidate == null || candidate.isBlank()) {
+            return fallback;
+        }
+        return candidate;
+    }
+
     private boolean hasConstraintMarker(DataIntegrityViolationException ex, List<String> markers) {
         Throwable current = ex;
         while (current != null) {
@@ -534,6 +1080,29 @@ public class PaymentService {
         boolean isEarlyReturn() {
             return dto != null;
         }
+    }
+
+    private record MutationPreparationResult(
+        PaymentDTO dto,
+        Payment payment,
+        PaymentMutation mutation,
+        PaymentProvider provider
+    ) {
+
+        static MutationPreparationResult earlyReturn(PaymentDTO dto) {
+            return new MutationPreparationResult(dto, null, null, null);
+        }
+
+        static MutationPreparationResult start(Payment payment, PaymentMutation mutation, PaymentProvider provider) {
+            return new MutationPreparationResult(null, payment, mutation, provider);
+        }
+
+        boolean isEarlyReturn() {
+            return dto != null;
+        }
+    }
+
+    private record RefundApplicationResult(Payment payment, boolean successful, String failureReason) {
     }
 
     private record WebhookPayload(String providerPaymentId, String status, String eventId) {
