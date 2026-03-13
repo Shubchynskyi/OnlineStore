@@ -175,7 +175,7 @@ classDiagram
         +getProviderCode() String
         +getSupportedCountries() Set~String~
         +calculateRates(request) List~ShippingRate~
-        +createShipment(order, rate) Shipment
+        +createShipment(request, rate) Shipment
         +track(trackingNumber) TrackingInfo
         +cancelShipment(shipmentId) void
     }
@@ -185,11 +185,9 @@ classDiagram
     PaymentProvider <|.. BankTransferPaymentProvider
     PaymentProvider <|.. CryptoPaymentProvider
 
-    ShippingProvider <|.. DhlProvider
-    ShippingProvider <|.. DpdProvider
-    ShippingProvider <|.. GlsProvider
-    ShippingProvider <|.. NovaPoshtaProvider
-    ShippingProvider <|.. FedExProvider
+    ShippingProvider <|.. DhlEuropeShippingProvider
+    ShippingProvider <|.. NovaPoshtaShippingProvider
+    ShippingProvider <|.. StubShippingProvider
 
     class ProviderRegistry {
         -providers Map
@@ -204,6 +202,7 @@ classDiagram
 
 Payment flow details: [payments-integration.md](payments-integration.md).
 - Contract endpoints: `POST /api/v1/payments`, `POST /api/v1/payments/{id}/confirm`, `POST /api/admin/payments/{id}/refund`, `POST /api/webhooks/payments/{provider}`.
+- Shipping contract endpoints: `POST /api/v1/shipping/rates`, `POST /api/v1/shipping`, `GET /api/v1/shipping/order/{orderId}`, `GET /api/v1/shipping/{shipmentId}/tracking`, `POST /api/v1/shipping/{shipmentId}/cancel`, `GET|PUT /api/admin/shipping/providers`.
 
 ---
 

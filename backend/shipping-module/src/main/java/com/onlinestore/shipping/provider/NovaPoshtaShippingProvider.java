@@ -13,10 +13,10 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 @Component
-public class StubShippingProvider implements ShippingProvider {
+public class NovaPoshtaShippingProvider implements ShippingProvider {
 
-    private static final String PROVIDER_CODE = "stub";
-    private static final Set<String> SUPPORTED_COUNTRIES = Set.of("US", "DE", "GB", "FR", "IT", "ES", "NL", "PL", "UA");
+    private static final String PROVIDER_CODE = "nova_poshta";
+    private static final Set<String> SUPPORTED_COUNTRIES = Set.of("UA");
 
     @Override
     public String getProviderCode() {
@@ -32,8 +32,8 @@ public class StubShippingProvider implements ShippingProvider {
     public List<ShippingRate> calculateRates(ShippingRequest request) {
         validateCountry(request);
         return List.of(
-            new ShippingRate("stub_standard", PROVIDER_CODE, "Stub Standard", new BigDecimal("9.99"), "EUR", 5),
-            new ShippingRate("stub_express", PROVIDER_CODE, "Stub Express", new BigDecimal("14.99"), "EUR", 2)
+            new ShippingRate("nova_branch", PROVIDER_CODE, "Nova Poshta Branch Pickup", new BigDecimal("120.00"), "UAH", 2),
+            new ShippingRate("nova_courier", PROVIDER_CODE, "Nova Poshta Courier", new BigDecimal("185.00"), "UAH", 1)
         );
     }
 
@@ -42,7 +42,7 @@ public class StubShippingProvider implements ShippingProvider {
         validateCountry(request);
         validateSelectedRate(selectedRate);
 
-        var trackingNumber = "stub-" + UUID.randomUUID();
+        var trackingNumber = "NP-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
         var shipment = new Shipment();
         shipment.setProviderCode(PROVIDER_CODE);
         shipment.setTrackingNumber(trackingNumber);
@@ -50,7 +50,7 @@ public class StubShippingProvider implements ShippingProvider {
         shipment.setEstimatedDelivery(LocalDate.now().plusDays(selectedRate.estimatedDays()));
         shipment.setShippingCostAmount(selectedRate.amount());
         shipment.setShippingCostCurrency(selectedRate.currency());
-        shipment.setLabelUrl("https://labels.stub.local/" + trackingNumber);
+        shipment.setLabelUrl("https://labels.novaposhta.example/" + trackingNumber + ".pdf");
         return shipment;
     }
 
@@ -59,8 +59,8 @@ public class StubShippingProvider implements ShippingProvider {
         return new TrackingInfo(
             trackingNumber,
             ShipmentStatus.IN_TRANSIT,
-            "Stub Sorting Center",
-            "Shipment in transit",
+            "Kyiv Distribution Center",
+            "Shipment accepted by Nova Poshta",
             Instant.now()
         );
     }
@@ -75,7 +75,7 @@ public class StubShippingProvider implements ShippingProvider {
     private void validateCountry(ShippingRequest request) {
         String countryCode = request.destinationCountry().trim().toUpperCase(Locale.ROOT);
         if (!SUPPORTED_COUNTRIES.contains(countryCode)) {
-            throw new BusinessException("NO_SHIPPING_PROVIDER", "Stub provider does not support country: " + countryCode);
+            throw new BusinessException("NO_SHIPPING_PROVIDER", "Nova Poshta does not support country: " + countryCode);
         }
     }
 

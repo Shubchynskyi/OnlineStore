@@ -271,27 +271,28 @@ Payment flow, webhooks, and status model: [../architecture/payments-integration.
 - [ ] **Outbox**: publish `payments.authorized`, `payments.completed`, `payments.failed`, and `payments.refunded` via outbox table (while preserving legacy `payment.completed`)
 
 ### 3.3 Shipping Module (Plugin Architecture)
-- [ ] **Interface**:
+- [x] **Interface**:
   ```java
   public interface ShippingProvider {
       String getProviderCode();
       Set<String> getSupportedCountries();
       List<ShippingRate> calculateRates(ShippingRequest request);
-      Shipment createShipment(Order order, ShippingRate selectedRate);
+      Shipment createShipment(ShippingRequest request, ShippingRate selectedRate);
       TrackingInfo track(String trackingNumber);
       void cancelShipment(String shipmentId);
   }
   ```
-- [ ] **Implementations**:
-  - [ ] `DhlShippingProvider`
+- [x] **Implementations**:
+  - [x] `DhlEuropeShippingProvider`
   - [ ] `DpdShippingProvider`
   - [ ] `GlsShippingProvider`
   - [ ] `FedExShippingProvider` (optional)
-  - [ ] `NovaPoshtaProvider` (optional, Ukraine)
-- [ ] **ShippingProviderRegistry** — similar to PaymentProviderRegistry
-- [ ] **Entities**: `Shipment`, `ShipmentStatus`, `TrackingEvent`
-- [ ] **Admin Configuration**: enable/disable providers via UI
-- [ ] **Access Control**: shipping operations must enforce order ownership at service layer
+  - [x] `NovaPoshtaShippingProvider` (Ukraine)
+  - [x] `StubShippingProvider` (disabled by default, available for local fallback/testing)
+- [x] **ShippingProviderRegistry** — similar to PaymentProviderRegistry, backed by persisted `shipping_provider_configs`
+- [x] **Entities**: `Shipment`, `ShipmentStatus`, `TrackingEvent`
+- [x] **Admin Configuration**: enable/disable providers and supported countries via admin API for UI integration
+- [x] **Access Control**: shipping operations must enforce order ownership at service layer
 
 ---
 

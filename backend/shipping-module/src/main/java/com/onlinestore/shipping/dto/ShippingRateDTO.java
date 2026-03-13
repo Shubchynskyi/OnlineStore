@@ -1,8 +1,8 @@
-package com.onlinestore.shipping.provider;
+package com.onlinestore.shipping.dto;
 
 import java.math.BigDecimal;
 
-public record ShippingRate(
+public record ShippingRateDTO(
     String rateCode,
     String providerCode,
     String serviceName,

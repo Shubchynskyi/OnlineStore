@@ -21,7 +21,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 class FlywayMigrationTest {
 
-    private static final List<String> EXPECTED_MIGRATION_VERSIONS = List.of("1", "2", "3", "4", "5", "6", "7", "8");
+    private static final List<String> EXPECTED_MIGRATION_VERSIONS = List.of("1", "2", "3", "4", "5", "6", "7", "8", "9");
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17-alpine")
@@ -44,10 +44,12 @@ class FlywayMigrationTest {
         assertThat(stringListQuery("SELECT slug FROM categories ORDER BY sort_order"))
             .containsExactly("electronics", "clothing", "home-garden", "sports");
         assertThat(countQuery("SELECT COUNT(*) FROM payment_provider_configs")).isEqualTo(4);
+        assertThat(countQuery("SELECT COUNT(*) FROM shipping_provider_configs")).isEqualTo(3);
         assertThat(extensionExists("uuid-ossp")).isTrue();
         assertThat(extensionExists("pg_trgm")).isTrue();
         assertThat(tableExists("payment_webhook_events")).isTrue();
         assertThat(tableExists("payment_mutations")).isTrue();
+        assertThat(tableExists("shipping_provider_configs")).isTrue();
         assertThat(tableExists("outbox_events")).isTrue();
         assertThat(tableExists("carts")).isTrue();
         assertThat(tableExists("product_attributes")).isTrue();
@@ -55,6 +57,8 @@ class FlywayMigrationTest {
         assertThat(indexExists("ux_payment_webhook_events_provider_event")).isTrue();
         assertThat(indexExists("ux_payment_mutations_idempotency_key")).isTrue();
         assertThat(indexExists("ux_payment_mutations_one_pending_per_payment")).isTrue();
+        assertThat(indexExists("ux_shipping_provider_configs_provider_code")).isTrue();
+        assertThat(indexExists("idx_shipments_provider_code")).isTrue();
         assertThat(indexExists("idx_payment_mutations_payment_type_created_at")).isTrue();
         assertThat(indexExists("idx_payment_mutations_payment_status")).isTrue();
         assertThat(indexExists("idx_outbox_events_status_next_attempt")).isTrue();
@@ -62,6 +66,8 @@ class FlywayMigrationTest {
         assertThat(indexExists("idx_product_attributes_product_id")).isTrue();
         assertThat(indexExists("ux_product_attributes_product_name")).isTrue();
         assertThat(indexExists("ux_product_images_object_key")).isTrue();
+        assertThat(constraintExists("fk_shipments_provider_code")).isTrue();
+        assertThat(constraintExists("ck_shipping_provider_configs_supported_countries_array")).isTrue();
     }
 
     private List<String> appliedMigrationVersions(Flyway flyway) {
@@ -113,6 +119,13 @@ class FlywayMigrationTest {
         return booleanQuery(
             "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = '%s')"
                 .formatted(indexName)
+        );
+    }
+
+    private boolean constraintExists(String constraintName) throws SQLException {
+        return booleanQuery(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.table_constraints "
+                + "WHERE constraint_schema = 'public' AND constraint_name = '%s')".formatted(constraintName)
         );
     }
 

@@ -1,6 +1,7 @@
 package com.onlinestore.shipping.dto;
 
 import com.onlinestore.shipping.entity.ShipmentStatus;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 public record ShipmentDTO(
@@ -10,6 +11,8 @@ public record ShipmentDTO(
     String trackingNumber,
     ShipmentStatus status,
     LocalDate estimatedDelivery,
-    String labelUrl
+    String labelUrl,
+    BigDecimal shippingCostAmount,
+    String shippingCostCurrency
 ) {
 }

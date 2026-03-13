@@ -5,5 +5,6 @@ public enum ShipmentStatus {
     LABEL_CREATED,
     IN_TRANSIT,
     DELIVERED,
+    CANCELLED,
     FAILED
 }

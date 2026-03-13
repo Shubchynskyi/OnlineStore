@@ -13,10 +13,10 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 @Component
-public class StubShippingProvider implements ShippingProvider {
+public class DhlEuropeShippingProvider implements ShippingProvider {
 
-    private static final String PROVIDER_CODE = "stub";
-    private static final Set<String> SUPPORTED_COUNTRIES = Set.of("US", "DE", "GB", "FR", "IT", "ES", "NL", "PL", "UA");
+    private static final String PROVIDER_CODE = "dhl";
+    private static final Set<String> SUPPORTED_COUNTRIES = Set.of("AT", "BE", "DE", "ES", "FR", "IT", "NL", "PL");
 
     @Override
     public String getProviderCode() {
@@ -32,8 +32,8 @@ public class StubShippingProvider implements ShippingProvider {
     public List<ShippingRate> calculateRates(ShippingRequest request) {
         validateCountry(request);
         return List.of(
-            new ShippingRate("stub_standard", PROVIDER_CODE, "Stub Standard", new BigDecimal("9.99"), "EUR", 5),
-            new ShippingRate("stub_express", PROVIDER_CODE, "Stub Express", new BigDecimal("14.99"), "EUR", 2)
+            new ShippingRate("dhl_economy", PROVIDER_CODE, "DHL Economy Select", new BigDecimal("11.90"), "EUR", 4),
+            new ShippingRate("dhl_express", PROVIDER_CODE, "DHL Express Worldwide", new BigDecimal("18.50"), "EUR", 2)
         );
     }
 
@@ -42,7 +42,7 @@ public class StubShippingProvider implements ShippingProvider {
         validateCountry(request);
         validateSelectedRate(selectedRate);
 
-        var trackingNumber = "stub-" + UUID.randomUUID();
+        var trackingNumber = "DHL-EU-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
         var shipment = new Shipment();
         shipment.setProviderCode(PROVIDER_CODE);
         shipment.setTrackingNumber(trackingNumber);
@@ -50,7 +50,7 @@ public class StubShippingProvider implements ShippingProvider {
         shipment.setEstimatedDelivery(LocalDate.now().plusDays(selectedRate.estimatedDays()));
         shipment.setShippingCostAmount(selectedRate.amount());
         shipment.setShippingCostCurrency(selectedRate.currency());
-        shipment.setLabelUrl("https://labels.stub.local/" + trackingNumber);
+        shipment.setLabelUrl("https://labels.dhl.example/" + trackingNumber + ".pdf");
         return shipment;
     }
 
@@ -59,8 +59,8 @@ public class StubShippingProvider implements ShippingProvider {
         return new TrackingInfo(
             trackingNumber,
             ShipmentStatus.IN_TRANSIT,
-            "Stub Sorting Center",
-            "Shipment in transit",
+            "DHL Europe Hub",
+            "Shipment processed by DHL Europe",
             Instant.now()
         );
     }
@@ -75,7 +75,7 @@ public class StubShippingProvider implements ShippingProvider {
     private void validateCountry(ShippingRequest request) {
         String countryCode = request.destinationCountry().trim().toUpperCase(Locale.ROOT);
         if (!SUPPORTED_COUNTRIES.contains(countryCode)) {
-            throw new BusinessException("NO_SHIPPING_PROVIDER", "Stub provider does not support country: " + countryCode);
+            throw new BusinessException("NO_SHIPPING_PROVIDER", "DHL does not support country: " + countryCode);
         }
     }
 

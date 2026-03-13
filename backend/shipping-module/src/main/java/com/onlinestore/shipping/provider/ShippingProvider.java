@@ -1,5 +1,6 @@
 package com.onlinestore.shipping.provider;
 
+import com.onlinestore.shipping.entity.Shipment;
 import java.util.List;
 import java.util.Set;
 
@@ -9,9 +10,11 @@ public interface ShippingProvider {
 
     Set<String> getSupportedCountries();
 
-    ShippingRate calculateRate(ShippingRequest request);
+    List<ShippingRate> calculateRates(ShippingRequest request);
 
-    String createShipment(ShippingRequest request);
+    Shipment createShipment(ShippingRequest request, ShippingRate selectedRate);
 
-    List<TrackingInfo> track(String trackingNumber);
+    TrackingInfo track(String trackingNumber);
+
+    void cancelShipment(String shipmentId);
 }
