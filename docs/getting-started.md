@@ -252,12 +252,12 @@ Payment flow, webhooks, and status model: [architecture/payments-integration.md]
 **Detailed instructions:** `docs/stages/stage-1-backend-core.md` (Week 4)
 
 ### ✅ Definition of Done (Stage 1)
-- [ ] Backend compiles: `./mvnw clean package`
-- [ ] All tests pass: `./mvnw test`
-- [ ] API documentation is available: http://localhost:8081/swagger-ui.html
-- [ ] Test coverage > 70%
-- [ ] Health check works: `/actuator/health`
-- [ ] Metrics are exported to Prometheus
+- [x] Backend compiles: `./mvnw clean package`
+- [x] All tests pass: `./mvnw verify`
+- [x] API documentation is available: http://localhost:8081/swagger-ui.html
+- [x] Test coverage > 70% (`backend` reactor enforces aggregate JaCoCo line coverage during `verify`)
+- [x] Health check works: `/actuator/health`
+- [x] Metrics are exported to Prometheus (`/actuator/prometheus`, ADMIN/OPS)
 
 ---
 

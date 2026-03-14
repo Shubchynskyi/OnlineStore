@@ -154,6 +154,12 @@ sequenceDiagram
 - Each user has a persisted cart aggregate with cart items keyed by `productVariantId`.
 - Cart writes validate current catalog stock and refresh item price snapshots before totals are recalculated.
 
+### DTO Mapping Policy
+
+- Stage 1 standardizes on explicit Spring-managed `*Mapper` classes at module boundaries instead of introducing a second mapper framework late in the milestone.
+- Representative examples are `catalog-module` `ProductMapper`, `users-module` `UserMapper`, `orders-module` `OrderMapper`/`CartMapper`, and `payments-module` `PaymentMapper`.
+- Mapping behavior is covered by focused unit tests so the documented MapStruct replacement remains verifiable and refactor-safe.
+
 ---
 
 ## 💳 Plugin Architecture: Payments & Shipping

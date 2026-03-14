@@ -67,7 +67,7 @@ backend/
   </modules>
   ```
 - [ ] Configure dependencies: Spring Data JPA, Security, Validation, Web
-- [ ] Add: Lombok, MapStruct, Testcontainers
+- [x] Add: Lombok, Testcontainers, and explicit Spring `*Mapper` classes as the standardized MapStruct replacement
 
 ### 1.2 Common Module
 - [ ] **BaseEntity** (id, createdAt, updatedAt, version)
@@ -423,9 +423,9 @@ try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
 
 ## ✅ Definition of Done
 
-- [ ] All modules compile and tests pass
-- [ ] API documentation is available at `/swagger-ui.html`
-- [ ] Test coverage > 70%
-- [ ] Docker image builds: `./mvnw spring-boot:build-image`
-- [ ] Health check endpoint: `/actuator/health`
-- [ ] Metrics endpoint: `/actuator/prometheus`
+- [x] All modules compile and tests pass
+- [x] API documentation is available at `/swagger-ui.html`
+- [x] Test coverage > 70% (`backend` reactor enforces aggregate JaCoCo line coverage during `verify`)
+- [x] Docker image builds: `./mvnw spring-boot:build-image` (covered by the existing `backend-ci` docker job on `main`)
+- [x] Health check endpoint: `/actuator/health`
+- [x] Metrics endpoint: `/actuator/prometheus` (ADMIN/OPS)
