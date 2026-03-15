@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: telegram-bot
+
+server:
+  port: ${SERVER_PORT:8082}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+telegram:
+  bot:
+    token: ${TELEGRAM_BOT_TOKEN}
+    username: ${TELEGRAM_BOT_USERNAME:}
+    webhook-url: ${TELEGRAM_WEBHOOK_URL:}
+    base-url: ${TELEGRAM_BASE_URL:https://api.telegram.org}

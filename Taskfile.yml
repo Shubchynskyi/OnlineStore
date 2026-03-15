@@ -209,6 +209,12 @@ tasks:
     cmds:
       - '{{.MVN}} test'
 
+  test-bot:
+    desc: Run Telegram Bot tests
+    dir: telegram-bot
+    cmds:
+      - '{{.MVN}} test'
+
   test-e2e:
     desc: Run E2E tests
     dir: store-frontend
