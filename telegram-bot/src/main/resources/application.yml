@@ -1,6 +1,12 @@
 spring:
   application:
     name: telegram-bot
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: ${REDIS_TIMEOUT:2s}
 
 server:
   port: ${SERVER_PORT:8082}
@@ -19,7 +25,13 @@ management:
 
 telegram:
   bot:
+    enabled: ${TELEGRAM_BOT_ENABLED:true}
     token: ${TELEGRAM_BOT_TOKEN}
     username: ${TELEGRAM_BOT_USERNAME:}
     webhook-url: ${TELEGRAM_WEBHOOK_URL:}
+    webhook-path: ${TELEGRAM_WEBHOOK_PATH:/telegram/webhook}
     base-url: ${TELEGRAM_BASE_URL:https://api.telegram.org}
+    session-ttl: ${TELEGRAM_SESSION_TTL:12h}
+    retry:
+      max-attempts: ${TELEGRAM_RETRY_MAX_ATTEMPTS:3}
+      backoff: ${TELEGRAM_RETRY_BACKOFF:500ms}

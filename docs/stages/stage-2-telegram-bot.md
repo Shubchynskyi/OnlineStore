@@ -34,6 +34,12 @@ public enum UserState {
 - Product card (Add to cart, Details)
 - Checkout flow
 
+### T-002 Implementation Notes
+- Transport mode is configuration-driven: empty `TELEGRAM_WEBHOOK_URL` keeps the bot in long-polling mode, while a configured webhook URL switches the bot to webhook delivery.
+- `TELEGRAM_WEBHOOK_PATH` must match the path segment used in `TELEGRAM_WEBHOOK_URL`; the bot validates this at startup before registering the webhook.
+- Dialog state is now persisted per user in Redis with TTL controlled by `TELEGRAM_SESSION_TTL`.
+- Core routing currently covers `/start`, `/catalog`, `/search`, `/cart`, `/order`, main-menu callback routes, and stateful text capture for search/order/address/AI placeholder flows.
+
 ---
 
 ## ✅ Week 2: AI Chat & Notifications
