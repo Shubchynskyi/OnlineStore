@@ -37,6 +37,7 @@ class ManagerNotificationServiceTest {
         botProperties.setToken("test-token");
         botProperties.getManagerNotifications().setEnabled(true);
         botProperties.getManagerNotifications().setChatId("1000");
+        botProperties.getManagerNotifications().setUserId("2000");
         managerNotificationService = new ManagerNotificationService(
             botProperties,
             new TelegramMessageFactory(),
@@ -82,6 +83,18 @@ class ManagerNotificationServiceTest {
         verify(telegramApiExecutor).execute(captor.capture());
         assertThat(captor.getValue().getText()).contains("Low-stock alert").contains("Laptop").contains("SKU-20");
         assertThat(callbackData(captor.getValue())).contains(ManagerActionHandler.acknowledgeLowStockCallback(20L));
+    }
+
+    @Test
+    void notificationsWithoutAuthorizedUsersAreDeliveredWithoutActionButtons() {
+        botProperties.getManagerNotifications().setUserId(null);
+        botProperties.getManagerNotifications().setUserIds("");
+
+        managerNotificationService.notifyOrderStatusChanged(order("PAID"));
+
+        ArgumentCaptor<SendMessage> captor = ArgumentCaptor.forClass(SendMessage.class);
+        verify(telegramApiExecutor).execute(captor.capture());
+        assertThat(captor.getValue().getReplyMarkup()).isNull();
     }
 
     private OrderDto order(String status) {

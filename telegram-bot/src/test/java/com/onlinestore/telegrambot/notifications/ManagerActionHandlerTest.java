@@ -45,6 +45,7 @@ class ManagerActionHandlerTest {
         botProperties.setToken("test-token");
         botProperties.getManagerNotifications().setEnabled(true);
         botProperties.getManagerNotifications().setChatId("20");
+        botProperties.getManagerNotifications().setUserId("10");
         managerActionHandler = new ManagerActionHandler(
             botProperties,
             managerOrdersIntegrationService,
@@ -79,6 +80,16 @@ class ManagerActionHandlerTest {
 
         assertThat(response).isInstanceOf(AnswerCallbackQuery.class);
         assertThat(((AnswerCallbackQuery) response).getText()).isEqualTo("Manager actions are not available in this chat.");
+        verify(telegramApiExecutor, never()).execute(any(SendMessage.class));
+    }
+
+    @Test
+    void rejectsActionsFromUnauthorizedManagerAccount() {
+        BotApiMethod<?> response = managerActionHandler.handleCallback(context(callbackUpdate(999L, 20L, "cb-3", "manager:order:accept:55")));
+
+        assertThat(response).isInstanceOf(AnswerCallbackQuery.class);
+        assertThat(((AnswerCallbackQuery) response).getText()).isEqualTo("Manager actions are not available for this account.");
+        verify(managerOrdersIntegrationService, never()).confirmOrder(any(), any());
         verify(telegramApiExecutor, never()).execute(any(SendMessage.class));
     }
 

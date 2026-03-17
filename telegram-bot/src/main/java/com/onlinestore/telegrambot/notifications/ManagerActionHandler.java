@@ -42,8 +42,12 @@ public class ManagerActionHandler {
     }
 
     public BotApiMethod<?> handleCallback(BotUpdateContext updateContext) {
-        if (!isAllowedChat(updateContext.getChatId())) {
+        BotProperties.ManagerNotifications config = botProperties.getManagerNotifications();
+        if (!isAllowedChat(config, updateContext.getChatId())) {
             return callbackNotice(updateContext, "Manager actions are not available in this chat.");
+        }
+        if (!isAllowedActor(config, updateContext.getUserId())) {
+            return callbackNotice(updateContext, "Manager actions are not available for this account.");
         }
 
         String callbackData = updateContext.callbackData().orElse("");
@@ -134,8 +138,12 @@ public class ManagerActionHandler {
         telegramApiExecutor.execute(telegramMessageFactory.message(chatId, text));
     }
 
-    private boolean isAllowedChat(Long chatId) {
-        return botProperties.getManagerNotifications().resolveChatIds().contains(chatId);
+    private boolean isAllowedChat(BotProperties.ManagerNotifications config, Long chatId) {
+        return config.resolveChatIds().contains(chatId);
+    }
+
+    private boolean isAllowedActor(BotProperties.ManagerNotifications config, Long userId) {
+        return config.resolveUserIds().contains(userId);
     }
 
     private BotApiMethod<?> callbackNotice(BotUpdateContext updateContext, String text) {

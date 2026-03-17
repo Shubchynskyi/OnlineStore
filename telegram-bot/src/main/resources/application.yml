@@ -81,6 +81,8 @@ telegram:
       enabled: ${TELEGRAM_MANAGER_NOTIFICATIONS_ENABLED:false}
       chat-id: ${TELEGRAM_MANAGER_CHAT_ID:}
       chat-ids: ${TELEGRAM_MANAGER_CHAT_IDS:}
+      user-id: ${TELEGRAM_MANAGER_USER_ID:}
+      user-ids: ${TELEGRAM_MANAGER_USER_IDS:}
       notify-order-created: ${TELEGRAM_MANAGER_NOTIFY_ORDER_CREATED:true}
       notify-order-status-changed: ${TELEGRAM_MANAGER_NOTIFY_ORDER_STATUS_CHANGED:true}
       notify-product-low-stock: ${TELEGRAM_MANAGER_NOTIFY_PRODUCT_LOW_STOCK:true}

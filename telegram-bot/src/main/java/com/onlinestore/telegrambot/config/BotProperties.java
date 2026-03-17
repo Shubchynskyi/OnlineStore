@@ -229,6 +229,11 @@ public class BotProperties {
         @NotNull
         private String chatIds = "";
 
+        private String userId;
+
+        @NotNull
+        private String userIds = "";
+
         private boolean notifyOrderCreated = true;
 
         private boolean notifyOrderStatusChanged = true;
@@ -236,18 +241,15 @@ public class BotProperties {
         private boolean notifyProductLowStock = true;
 
         public List<Long> resolveChatIds() {
-            LinkedHashSet<Long> resolvedChatIds = new LinkedHashSet<>();
-            if (StringUtils.hasText(chatId)) {
-                resolvedChatIds.add(parseChatId(chatId.trim()));
-            }
-            if (StringUtils.hasText(chatIds)) {
-                for (String candidate : chatIds.split("[,;\\r\\n]+")) {
-                    if (StringUtils.hasText(candidate)) {
-                        resolvedChatIds.add(parseChatId(candidate.trim()));
-                    }
-                }
-            }
-            return List.copyOf(resolvedChatIds);
+            return parseIdentifiers(chatId, chatIds, false, "manager chat id");
+        }
+
+        public List<Long> resolveUserIds() {
+            return parseIdentifiers(userId, userIds, true, "manager user id");
+        }
+
+        public boolean hasAuthorizedActorsConfigured() {
+            return !resolveUserIds().isEmpty();
         }
 
         @AssertTrue(message = "telegram.bot.manager-notifications requires at least one chat id when enabled")
@@ -255,11 +257,30 @@ public class BotProperties {
             return !enabled || !resolveChatIds().isEmpty();
         }
 
-        private Long parseChatId(String value) {
+        private List<Long> parseIdentifiers(String singleValue, String multipleValues, boolean positiveOnly, String label) {
+            LinkedHashSet<Long> resolvedIdentifiers = new LinkedHashSet<>();
+            if (StringUtils.hasText(singleValue)) {
+                resolvedIdentifiers.add(parseIdentifier(singleValue.trim(), positiveOnly, label));
+            }
+            if (StringUtils.hasText(multipleValues)) {
+                for (String candidate : multipleValues.split("[,;\\r\\n]+")) {
+                    if (StringUtils.hasText(candidate)) {
+                        resolvedIdentifiers.add(parseIdentifier(candidate.trim(), positiveOnly, label));
+                    }
+                }
+            }
+            return List.copyOf(resolvedIdentifiers);
+        }
+
+        private Long parseIdentifier(String value, boolean positiveOnly, String label) {
             try {
-                return Long.parseLong(value);
+                long parsedValue = Long.parseLong(value);
+                if (positiveOnly && parsedValue <= 0) {
+                    throw new IllegalStateException("Invalid " + label + ": " + value);
+                }
+                return parsedValue;
             } catch (NumberFormatException ex) {
-                throw new IllegalStateException("Invalid manager chat id: " + value, ex);
+                throw new IllegalStateException("Invalid " + label + ": " + value, ex);
             }
         }
     }

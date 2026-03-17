@@ -93,8 +93,8 @@ public enum UserState {
 
 ### T-007 Implementation Notes
 - Manager notifications are now consumed directly by `telegram-bot` through dedicated RabbitMQ listeners bound to `order.events` and `product.events`.
-- Manager delivery is configuration-driven via `TELEGRAM_MANAGER_NOTIFICATIONS_ENABLED`, legacy `TELEGRAM_MANAGER_CHAT_ID`, and optional `TELEGRAM_MANAGER_CHAT_IDS` for additional chats/groups.
-- Order notifications now include inline Telegram actions for acknowledge, customer handoff, and conditional `Accept order` when the backend status is `PAID`.
+- Manager delivery is configuration-driven via `TELEGRAM_MANAGER_NOTIFICATIONS_ENABLED`, legacy `TELEGRAM_MANAGER_CHAT_ID`, optional `TELEGRAM_MANAGER_CHAT_IDS` for additional chats/groups, and `TELEGRAM_MANAGER_USER_ID(S)` for actor-level callback authorization.
+- Order notifications now include inline Telegram actions for acknowledge, customer handoff, and conditional `Accept order` when the backend status is `PAID`; action buttons are rendered only when manager Telegram user IDs are configured.
 - `Accept order` reuses the existing backend admin transition `PATCH /api/admin/orders/{id}/status?event=MANAGER_CONFIRM` and therefore requires bot service-auth to be enabled with manager-capable credentials.
 - The backend now emits `product.low-stock` only when a reservation crosses a variant from above its low-stock threshold to at-or-below the threshold, which avoids duplicate alerts on every subsequent reservation below the threshold.
 

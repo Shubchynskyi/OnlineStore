@@ -103,6 +103,9 @@ public class ManagerNotificationService {
     }
 
     private InlineKeyboardMarkup orderKeyboard(OrderDto order) {
+        if (!botProperties.getManagerNotifications().hasAuthorizedActorsConfigured()) {
+            return null;
+        }
         List<InlineKeyboardRow> rows = new ArrayList<>();
         if ("PAID".equals(order.status())) {
             rows.add(new InlineKeyboardRow(
@@ -117,6 +120,9 @@ public class ManagerNotificationService {
     }
 
     private InlineKeyboardMarkup lowStockKeyboard(ProductLowStockEventPayload event) {
+        if (!botProperties.getManagerNotifications().hasAuthorizedActorsConfigured()) {
+            return null;
+        }
         return telegramMessageFactory.keyboard(List.of(
             new InlineKeyboardRow(
                 telegramMessageFactory.callbackButton("Acknowledge", ManagerActionHandler.acknowledgeLowStockCallback(event.variantId()))

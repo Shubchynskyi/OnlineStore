@@ -430,6 +430,7 @@ class BotUpdateDispatcherTests {
         botProperties.getBackendApi().setSearchPageSize(5);
         botProperties.getBackendApi().setRecentOrdersPageSize(3);
         botProperties.getManagerNotifications().setChatId("20");
+        botProperties.getManagerNotifications().setUserId("10");
         return botProperties;
     }
 
