@@ -293,10 +293,14 @@ Payment flow, webhooks, and status model: [architecture/payments-integration.md]
 **Detailed instructions:** `docs/stages/stage-2-telegram-bot.md` (Week 2)
 
 ### ✅ Definition of Done (Stage 2)
-- [ ] Bot responds to commands
-- [ ] AI chat works and gives relevant answers
-- [ ] Managers receive notifications in Telegram
-- [ ] Rate limiting works
+- [x] Bot responds to commands
+- [x] AI chat works and gives relevant answers
+- [x] Managers receive notifications in Telegram
+- [x] Rate limiting works
+
+Validation evidence and local runbook:
+- `docs/stages/stage-2-telegram-bot.md`
+- `telegram-bot/README.md`
 
 ---
 

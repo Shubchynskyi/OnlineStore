@@ -60,6 +60,7 @@ task db-reset      # Reset DB (DANGEROUS!)
 ```bash
 task test          # Backend tests (current)
 task test-backend  # Backend tests
+task test-bot      # Telegram Bot tests
 task test-e2e      # E2E tests
 
 # Dependency audit
@@ -81,6 +82,7 @@ task docker-build  # Build Docker images
 |--------|-----|-------------|
 | **API Gateway** | http://localhost:8080 | JWT token |
 | **Backend API** | http://localhost:8081 | JWT token |
+| **Telegram Bot** | http://localhost:8082 | Telegram update transport |
 | **Store Frontend** | http://localhost:3000 | Keycloak |
 | **Admin Panel** | http://localhost:4200 | Keycloak |
 | **Keycloak** | http://localhost:8180 | admin / (from .env) |
@@ -167,7 +169,10 @@ POSTGRES_REPLICATION_PASSWORD=your_secure_password
 ### For Telegram bot:
 ```bash
 TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
+TELEGRAM_WEBHOOK_URL=
 TELEGRAM_WEBHOOK_SECRET_TOKEN=replace-with-a-long-random-secret
+TELEGRAM_SESSION_TTL=12h
+BACKEND_API_BASE_URL=http://localhost:8080
 TELEGRAM_MANAGER_NOTIFICATIONS_ENABLED=true
 TELEGRAM_MANAGER_CHAT_ID=-100123456789
 TELEGRAM_MANAGER_CHAT_IDS=-100123456789,-100987654321
@@ -177,8 +182,11 @@ TELEGRAM_USER_RATE_LIMIT_MAX_EVENTS=20
 TELEGRAM_MANAGER_RATE_LIMIT_MAX_ACTIONS=6
 BACKEND_SERVICE_AUTH_ENABLED=true
 BACKEND_SERVICE_AUTH_CLIENT_ID=telegram-bot
+BACKEND_SERVICE_AUTH_TOKEN_URL=http://localhost:8180/realms/online-store/protocol/openid-connect/token
 BACKEND_SERVICE_AUTH_CLIENT_SECRET=telegram-bot-secret
 ```
+
+**Runbook:** `telegram-bot/README.md`
 
 ### For AI chat:
 ```bash

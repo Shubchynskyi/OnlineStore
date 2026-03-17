@@ -104,10 +104,71 @@ public enum UserState {
 - Manager security events are now audited with sanitized structured logs for denied, throttled, replayed, failed, and completed actions. The `Accept order` inline button is rendered only when manager actors are configured and bot service authentication is enabled.
 - Failure isolation is stronger around assistant and manager flows: an assistant reply is still delivered if conversation-state persistence fails, and a manager action that already succeeded in the backend is not treated as failed just because the non-critical Telegram follow-up message could not be delivered.
 
+### T-009 Implementation Notes
+- Telegram Bot quality coverage now includes focused `SearchFlowService` tests on top of the existing dispatcher, cart, checkout, assistant, client, and notification suites.
+- Redis session persistence now has Testcontainers-backed contract coverage in `RedisUserSessionStoreContractTests`, validating JDK serialization round-trips and TTL application against a real Redis instance.
+- RabbitMQ manager notification delivery now has Testcontainers-backed contract coverage in `ManagerNotificationsRabbitContractTests`, validating exchange, queue, binding, message conversion, and listener delivery against a real RabbitMQ instance.
+- A module-level local runbook now lives in `telegram-bot/README.md`, and the root docs now document the required bot variables plus validation commands.
+
 ---
 
+## Local Runbook
+
+1. Copy the repository root `.env.example` to `.env` and fill in the Telegram Bot variables.
+2. Start shared infrastructure:
+
+```bash
+docker compose up -d redis rabbitmq keycloak
+```
+
+3. Start the backend:
+
+```bash
+task backend-run
+```
+
+4. Start the bot:
+
+```bash
+task bot-run
+```
+
+5. Keep `TELEGRAM_WEBHOOK_URL` empty for local long polling, or set both `TELEGRAM_WEBHOOK_URL` and `TELEGRAM_WEBHOOK_SECRET_TOKEN` for webhook mode.
+
+Detailed module-level instructions are documented in `telegram-bot/README.md`.
+
+## Validation Evidence
+
+- Full module test suite:
+
+```powershell
+cd telegram-bot
+.\mvnw.cmd -q test
+```
+
+- Command and routing evidence:
+  - `BotUpdateDispatcherTests`
+  - `SearchFlowServiceTests`
+  - `CartFlowServiceTests`
+  - `CheckoutFlowServiceTests`
+- AI assistant evidence:
+  - `AiAssistantFlowServiceTests`
+  - `AiAssistantServiceTests`
+- Redis/session evidence:
+  - `RedisUserSessionStoreTests`
+  - `RedisUserSessionStoreContractTests`
+- RabbitMQ/manager notification evidence:
+  - `ManagerOrderEventListenerTest`
+  - `ManagerProductEventListenerTest`
+  - `ManagerNotificationsRabbitContractTests`
+- Throttling and failure-isolation evidence:
+  - `InteractionThrottlingServiceTests`
+  - `UserInteractionLockServiceTests`
+  - `ManagerActionHandlerTest`
+  - `TelegramWebhookControllerTests`
+
 ## ✅ Definition of Done
-- [ ] Bot responds to commands
-- [ ] AI chat works
-- [ ] Managers receive notifications
-- [ ] Rate limiting works
+- [x] Bot responds to commands
+- [x] AI chat works
+- [x] Managers receive notifications
+- [x] Rate limiting works
