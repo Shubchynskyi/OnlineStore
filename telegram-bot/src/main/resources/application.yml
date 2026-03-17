@@ -35,3 +35,20 @@ telegram:
     retry:
       max-attempts: ${TELEGRAM_RETRY_MAX_ATTEMPTS:3}
       backoff: ${TELEGRAM_RETRY_BACKOFF:500ms}
+    backend-api:
+      base-url: ${BACKEND_API_BASE_URL:http://localhost:8080}
+      catalog-page-size: ${BACKEND_API_CATALOG_PAGE_SIZE:6}
+      search-page-size: ${BACKEND_API_SEARCH_PAGE_SIZE:5}
+      recent-orders-page-size: ${BACKEND_API_RECENT_ORDERS_PAGE_SIZE:3}
+      customer-token-attribute-key: ${BACKEND_CUSTOMER_TOKEN_ATTRIBUTE_KEY:backendAccessToken}
+      connect-timeout: ${BACKEND_API_CONNECT_TIMEOUT:5s}
+      read-timeout: ${BACKEND_API_READ_TIMEOUT:10s}
+      retry:
+        max-attempts: ${BACKEND_API_RETRY_MAX_ATTEMPTS:3}
+        backoff: ${BACKEND_API_RETRY_BACKOFF:300ms}
+      service-auth:
+        enabled: ${BACKEND_SERVICE_AUTH_ENABLED:false}
+        token-url: ${BACKEND_SERVICE_AUTH_TOKEN_URL:http://localhost:8180/realms/online-store/protocol/openid-connect/token}
+        client-id: ${BACKEND_SERVICE_AUTH_CLIENT_ID:telegram-bot}
+        client-secret: ${BACKEND_SERVICE_AUTH_CLIENT_SECRET:}
+        scope: ${BACKEND_SERVICE_AUTH_SCOPE:}

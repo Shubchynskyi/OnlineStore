@@ -47,6 +47,15 @@ public enum UserState {
 ### 2.1 Backend API Client (Feign)
 - [ ] ProductClient, OrderClient, SearchClient
 
+### T-003 Implementation Notes
+- The bot now uses a dedicated backend integration layer built on Spring `RestClient` for catalog, search, cart, and orders APIs, with shared timeout, retry, and backend-error decoding behavior.
+- Public flows already hit the backend directly: `/catalog` and the catalog main-menu callback load live category previews, while free-text search requests query `/api/v1/public/search/products` and return result summaries.
+- Backend gateway settings are configurable via `BACKEND_API_BASE_URL`, `BACKEND_API_CONNECT_TIMEOUT`, `BACKEND_API_READ_TIMEOUT`, `BACKEND_API_RETRY_*`, and preview-size properties under `telegram.bot.backend-api.*`.
+- Protected cart and order operations are intentionally separated from service-account auth: they require a customer bearer token resolved from the bot session attribute `backendAccessToken`, so the bot does not impersonate customers with client-credentials tokens.
+- Optional service-to-service authentication for public backend calls can be enabled via `BACKEND_SERVICE_AUTH_*` and uses Keycloak client credentials without changing the customer-auth boundary.
+- Service-auth token responses are now rejected unless Keycloak returns a JWT-shaped `access_token` with a positive `expires_in`, preventing invalid tokens from being cached and replayed across backend calls.
+- User-facing bot replies now surface sanitized backend-failure messages, while detailed backend status/error/path diagnostics remain in server logs for troubleshooting.
+
 ### 2.2 AI Chat (OpenAI)
 - [ ] System prompt with store context
 - [ ] RAG: search for relevant products via Elasticsearch

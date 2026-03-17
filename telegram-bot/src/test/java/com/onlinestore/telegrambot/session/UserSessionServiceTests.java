@@ -2,6 +2,7 @@ package com.onlinestore.telegrambot.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.onlinestore.telegrambot.config.BotProperties;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -17,7 +18,9 @@ class UserSessionServiceTests {
     @BeforeEach
     void setUp() {
         inMemoryUserSessionStore = new InMemoryUserSessionStore();
-        userSessionService = new UserSessionService(inMemoryUserSessionStore);
+        BotProperties botProperties = new BotProperties();
+        botProperties.setToken("test-token");
+        userSessionService = new UserSessionService(inMemoryUserSessionStore, botProperties);
     }
 
     @Test
@@ -38,6 +41,28 @@ class UserSessionServiceTests {
         assertThat(updatedSession.getLastCommand()).isEqualTo("/start");
         assertThat(updatedSession.getAttributes()).isEmpty();
         assertThat(updatedSession.getUpdatedAtEpochMillis()).isGreaterThan(1L);
+    }
+
+    @Test
+    void transitionToPreservesConfiguredCustomerTokenAttribute() {
+        UserSession existingSession = UserSession.builder()
+            .userId(100L)
+            .chatId(200L)
+            .state(UserState.VIEWING_CART)
+            .lastCommand("/cart")
+            .attributes(new LinkedHashMap<>(Map.of(
+                "backendAccessToken", "customer-token",
+                "searchQuery", "milk"
+            )))
+            .updatedAtEpochMillis(1L)
+            .build();
+        inMemoryUserSessionStore.save(existingSession);
+
+        UserSession updatedSession = userSessionService.transitionTo(existingSession, 200L, UserState.MAIN_MENU, "/start");
+
+        assertThat(updatedSession.getAttributes())
+            .containsEntry("backendAccessToken", "customer-token")
+            .doesNotContainKey("searchQuery");
     }
 
     @Test

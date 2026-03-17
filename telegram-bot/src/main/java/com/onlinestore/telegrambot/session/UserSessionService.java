@@ -1,5 +1,6 @@
 package com.onlinestore.telegrambot.session;
 
+import com.onlinestore.telegrambot.config.BotProperties;
 import java.util.LinkedHashMap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service;
 public class UserSessionService {
 
     private final UserSessionStore userSessionStore;
+    private final BotProperties botProperties;
 
     public UserSession getOrCreate(Long userId, Long chatId) {
         return userSessionStore.findByUserId(userId)
@@ -21,7 +23,7 @@ public class UserSessionService {
             .chatId(chatId)
             .state(nextState)
             .lastCommand(lastCommand)
-            .attributes(new LinkedHashMap<>())
+            .attributes(preserveDurableAttributes(userSession))
             .updatedAtEpochMillis(System.currentTimeMillis())
             .build();
         return userSessionStore.save(updatedSession);
@@ -49,5 +51,15 @@ public class UserSessionService {
             .updatedAtEpochMillis(System.currentTimeMillis())
             .build();
         return userSessionStore.save(reboundSession);
+    }
+
+    private LinkedHashMap<String, String> preserveDurableAttributes(UserSession userSession) {
+        LinkedHashMap<String, String> durableAttributes = new LinkedHashMap<>();
+        String tokenAttributeKey = botProperties.getBackendApi().getCustomerTokenAttributeKey();
+        String tokenValue = userSession.getAttributes().get(tokenAttributeKey);
+        if (tokenValue != null) {
+            durableAttributes.put(tokenAttributeKey, tokenValue);
+        }
+        return durableAttributes;
     }
 }
