@@ -38,6 +38,7 @@ class ManagerNotificationServiceTest {
         botProperties.getManagerNotifications().setEnabled(true);
         botProperties.getManagerNotifications().setChatId("1000");
         botProperties.getManagerNotifications().setUserId("2000");
+        botProperties.getBackendApi().getServiceAuthentication().setEnabled(true);
         managerNotificationService = new ManagerNotificationService(
             botProperties,
             new TelegramMessageFactory(),
@@ -95,6 +96,19 @@ class ManagerNotificationServiceTest {
         ArgumentCaptor<SendMessage> captor = ArgumentCaptor.forClass(SendMessage.class);
         verify(telegramApiExecutor).execute(captor.capture());
         assertThat(captor.getValue().getReplyMarkup()).isNull();
+    }
+
+    @Test
+    void paidOrderNotificationsHideAcceptActionWhenServiceAuthenticationIsDisabled() {
+        botProperties.getBackendApi().getServiceAuthentication().setEnabled(false);
+
+        managerNotificationService.notifyOrderStatusChanged(order("PAID"));
+
+        ArgumentCaptor<SendMessage> captor = ArgumentCaptor.forClass(SendMessage.class);
+        verify(telegramApiExecutor).execute(captor.capture());
+        assertThat(callbackData(captor.getValue()))
+            .doesNotContain(ManagerActionHandler.acceptOrderCallback(42L))
+            .contains(ManagerActionHandler.customerHandoffCallback(42L));
     }
 
     private OrderDto order(String status) {

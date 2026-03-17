@@ -98,6 +98,12 @@ public enum UserState {
 - `Accept order` reuses the existing backend admin transition `PATCH /api/admin/orders/{id}/status?event=MANAGER_CONFIRM` and therefore requires bot service-auth to be enabled with manager-capable credentials.
 - The backend now emits `product.low-stock` only when a reservation crosses a variant from above its low-stock threshold to at-or-below the threshold, which avoids duplicate alerts on every subsequent reservation below the threshold.
 
+### T-008 Implementation Notes
+- Webhook mode now requires `TELEGRAM_WEBHOOK_SECRET_TOKEN`; the bot registers that secret with Telegram during `SetWebhook`, and the webhook controller rejects requests that do not include the matching `X-Telegram-Bot-Api-Secret-Token` header.
+- Abuse protection now includes configurable Redis-backed throttling for per-user updates, AI requests, and manager actions, plus short duplicate-action guards for manager callbacks and cart mutation callbacks. Unit tests keep working without Redis by falling back to an in-memory guard implementation when no `StringRedisTemplate` is injected.
+- Manager security events are now audited with sanitized structured logs for denied, throttled, replayed, failed, and completed actions. The `Accept order` inline button is rendered only when manager actors are configured and bot service authentication is enabled.
+- Failure isolation is stronger around assistant and manager flows: an assistant reply is still delivered if conversation-state persistence fails, and a manager action that already succeeded in the backend is not treated as failed just because the non-critical Telegram follow-up message could not be delivered.
+
 ---
 
 ## ✅ Definition of Done

@@ -1,6 +1,8 @@
 package com.onlinestore.telegrambot.routing;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.onlinestore.telegrambot.config.BotProperties;
@@ -14,6 +16,8 @@ import com.onlinestore.telegrambot.session.UserSession;
 import com.onlinestore.telegrambot.session.UserSessionService;
 import com.onlinestore.telegrambot.session.UserSessionStore;
 import com.onlinestore.telegrambot.session.UserState;
+import com.onlinestore.telegrambot.support.InteractionThrottlingService;
+import com.onlinestore.telegrambot.support.SecurityAuditService;
 import com.onlinestore.telegrambot.support.TelegramMessageFactory;
 import java.math.BigDecimal;
 import java.util.List;
@@ -25,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.botapimethods.BotApiMethod;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
@@ -40,6 +45,8 @@ class CartFlowServiceTests {
 
     @Mock
     private CartIntegrationService cartIntegrationService;
+    @Mock
+    private SecurityAuditService securityAuditService;
 
     private InMemoryUserSessionStore userSessionStore;
     private UserSessionService userSessionService;
@@ -52,11 +59,14 @@ class CartFlowServiceTests {
         BotProperties botProperties = new BotProperties();
         botProperties.setToken("test-token");
         userSessionService = new UserSessionService(userSessionStore, botProperties);
+        InteractionThrottlingService interactionThrottlingService = new InteractionThrottlingService(botProperties, null);
 
         cartFlowService = new CartFlowService(
             cartIntegrationService,
             userSessionService,
-            new TelegramMessageFactory()
+            new TelegramMessageFactory(),
+            interactionThrottlingService,
+            securityAuditService
         );
     }
 
@@ -175,6 +185,27 @@ class CartFlowServiceTests {
         assertThat(((EditMessageText) response).getText())
             .contains("updated in the store")
             .contains("x1");
+    }
+
+    @Test
+    void duplicateAddVariantCallbackIsRejectedBeforeRepeatingBackendMutation() {
+        when(cartIntegrationService.addItem(10L, new AddCartItemRequest(500L, 1))).thenReturn(cartDto(
+            new CartItemDto(11L, 500L, "Green Tea", "Default", "SKU-500", 1, new BigDecimal("4.50"), "USD", new BigDecimal("4.50"))
+        ));
+
+        UserSession userSession = userSessionService.getOrCreate(10L, 20L);
+        cartFlowService.handleCallback(
+            context(callbackUpdate(10L, 20L, 7, "cb-1", CartFlowService.addVariantCallback(500L))),
+            userSession
+        );
+        BotApiMethod<?> duplicateResponse = cartFlowService.handleCallback(
+            context(callbackUpdate(10L, 20L, 7, "cb-2", CartFlowService.addVariantCallback(500L))),
+            userSession
+        );
+
+        assertThat(duplicateResponse).isInstanceOf(AnswerCallbackQuery.class);
+        assertThat(((AnswerCallbackQuery) duplicateResponse).getText()).contains("already being processed");
+        verify(cartIntegrationService, times(1)).addItem(10L, new AddCartItemRequest(500L, 1));
     }
 
     private BotUpdateContext context(Update update) {

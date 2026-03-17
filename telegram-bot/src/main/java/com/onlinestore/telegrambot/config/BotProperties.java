@@ -61,6 +61,10 @@ public class BotProperties {
     @NotNull
     private ManagerNotifications managerNotifications = new ManagerNotifications();
 
+    @Valid
+    @NotNull
+    private Protection protection = new Protection();
+
     public boolean isWebhookEnabled() {
         return StringUtils.hasText(webhookUrl);
     }
@@ -68,6 +72,12 @@ public class BotProperties {
     @AssertTrue(message = "telegram.bot.webhook-path must start with '/'")
     public boolean isWebhookPathValid() {
         return webhookPath != null && webhookPath.startsWith("/");
+    }
+
+    @AssertTrue(message = "telegram.bot.protection.webhook-secret-token is required when telegram.bot.webhook-url is configured")
+    public boolean isWebhookSecretConfigured() {
+        return !isWebhookEnabled()
+            || protection != null && StringUtils.hasText(protection.getWebhookSecretToken());
     }
 
     @Getter
@@ -285,6 +295,66 @@ public class BotProperties {
         }
     }
 
+    @Getter
+    @Setter
+    public static class Protection {
+
+        private String webhookSecretToken;
+
+        @NotNull
+        private Duration duplicateCartMutationTtl = Duration.ofSeconds(5);
+
+        @NotNull
+        private Duration duplicateManagerActionTtl = Duration.ofSeconds(15);
+
+        @Valid
+        @NotNull
+        private RateLimit rateLimit = new RateLimit();
+
+        public boolean hasWebhookSecretToken() {
+            return StringUtils.hasText(webhookSecretToken);
+        }
+
+        @AssertTrue(message = "telegram.bot.protection.webhook-secret-token must be at least 16 non-whitespace characters when configured")
+        public boolean isWebhookSecretTokenValid() {
+            return !StringUtils.hasText(webhookSecretToken)
+                || webhookSecretToken.equals(webhookSecretToken.trim()) && webhookSecretToken.length() >= 16;
+        }
+    }
+
+    @Getter
+    @Setter
+    public static class RateLimit {
+
+        @Valid
+        @NotNull
+        private RateLimitWindow userUpdates = rateLimitWindow(20, Duration.ofMinutes(1));
+
+        @Valid
+        @NotNull
+        private RateLimitWindow aiRequests = rateLimitWindow(4, Duration.ofMinutes(1));
+
+        @Valid
+        @NotNull
+        private RateLimitWindow managerActions = rateLimitWindow(6, Duration.ofMinutes(1));
+    }
+
+    @Getter
+    @Setter
+    public static class RateLimitWindow {
+
+        @Min(1)
+        private int maxEvents;
+
+        @NotNull
+        private Duration window;
+
+        @AssertTrue(message = "telegram.bot.protection.rate-limit windows must be positive")
+        public boolean isWindowValid() {
+            return window != null && !window.isZero() && !window.isNegative();
+        }
+    }
+
     private static boolean isAbsoluteUrl(String candidate) {
         if (!StringUtils.hasText(candidate)) {
             return false;
@@ -295,5 +365,12 @@ public class BotProperties {
         } catch (IllegalArgumentException ex) {
             return false;
         }
+    }
+
+    private static RateLimitWindow rateLimitWindow(int maxEvents, Duration window) {
+        RateLimitWindow rateLimitWindow = new RateLimitWindow();
+        rateLimitWindow.setMaxEvents(maxEvents);
+        rateLimitWindow.setWindow(window);
+        return rateLimitWindow;
     }
 }

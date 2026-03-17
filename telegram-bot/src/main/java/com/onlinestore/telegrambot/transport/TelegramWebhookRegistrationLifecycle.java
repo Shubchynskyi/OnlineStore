@@ -28,7 +28,11 @@ public class TelegramWebhookRegistrationLifecycle implements SmartLifecycle {
         }
 
         validateWebhookConfiguration();
-        telegramApiExecutor.execute(SetWebhook.builder().url(botProperties.getWebhookUrl()).build());
+        SetWebhook.SetWebhookBuilder webhookBuilder = SetWebhook.builder().url(botProperties.getWebhookUrl());
+        if (botProperties.getProtection().hasWebhookSecretToken()) {
+            webhookBuilder.secretToken(botProperties.getProtection().getWebhookSecretToken());
+        }
+        telegramApiExecutor.execute(webhookBuilder.build());
         running = true;
         log.info("Telegram bot webhook registered at {}", botProperties.getWebhookUrl());
     }

@@ -107,7 +107,7 @@ public class ManagerNotificationService {
             return null;
         }
         List<InlineKeyboardRow> rows = new ArrayList<>();
-        if ("PAID".equals(order.status())) {
+        if ("PAID".equals(order.status()) && botProperties.getBackendApi().getServiceAuthentication().isEnabled()) {
             rows.add(new InlineKeyboardRow(
                 telegramMessageFactory.callbackButton("Accept order", ManagerActionHandler.acceptOrderCallback(order.id()))
             ));

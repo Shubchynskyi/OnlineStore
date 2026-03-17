@@ -38,6 +38,20 @@ telegram:
     base-url: ${TELEGRAM_BASE_URL:https://api.telegram.org}
     session-ttl: ${TELEGRAM_SESSION_TTL:12h}
     interaction-lock-ttl: ${TELEGRAM_INTERACTION_LOCK_TTL:4m}
+    protection:
+      webhook-secret-token: ${TELEGRAM_WEBHOOK_SECRET_TOKEN:}
+      duplicate-cart-mutation-ttl: ${TELEGRAM_DUPLICATE_CART_MUTATION_TTL:5s}
+      duplicate-manager-action-ttl: ${TELEGRAM_DUPLICATE_MANAGER_ACTION_TTL:15s}
+      rate-limit:
+        user-updates:
+          max-events: ${TELEGRAM_USER_RATE_LIMIT_MAX_EVENTS:20}
+          window: ${TELEGRAM_USER_RATE_LIMIT_WINDOW:1m}
+        ai-requests:
+          max-events: ${TELEGRAM_AI_RATE_LIMIT_MAX_REQUESTS:4}
+          window: ${TELEGRAM_AI_RATE_LIMIT_WINDOW:1m}
+        manager-actions:
+          max-events: ${TELEGRAM_MANAGER_RATE_LIMIT_MAX_ACTIONS:6}
+          window: ${TELEGRAM_MANAGER_RATE_LIMIT_WINDOW:1m}
     retry:
       max-attempts: ${TELEGRAM_RETRY_MAX_ATTEMPTS:3}
       backoff: ${TELEGRAM_RETRY_BACKOFF:500ms}

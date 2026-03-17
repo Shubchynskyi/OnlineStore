@@ -3,6 +3,7 @@ package com.onlinestore.telegrambot.notifications;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -10,6 +11,8 @@ import com.onlinestore.telegrambot.config.BotProperties;
 import com.onlinestore.telegrambot.integration.dto.orders.OrderDto;
 import com.onlinestore.telegrambot.integration.service.ManagerOrdersIntegrationService;
 import com.onlinestore.telegrambot.routing.BotUpdateContext;
+import com.onlinestore.telegrambot.support.InteractionThrottlingService;
+import com.onlinestore.telegrambot.support.SecurityAuditService;
 import com.onlinestore.telegrambot.support.TelegramApiExecutor;
 import com.onlinestore.telegrambot.support.TelegramMessageFactory;
 import java.math.BigDecimal;
@@ -36,6 +39,8 @@ class ManagerActionHandlerTest {
     private ManagerOrdersIntegrationService managerOrdersIntegrationService;
     @Mock
     private TelegramApiExecutor telegramApiExecutor;
+    @Mock
+    private SecurityAuditService securityAuditService;
 
     private ManagerActionHandler managerActionHandler;
 
@@ -46,11 +51,14 @@ class ManagerActionHandlerTest {
         botProperties.getManagerNotifications().setEnabled(true);
         botProperties.getManagerNotifications().setChatId("20");
         botProperties.getManagerNotifications().setUserId("10");
+        InteractionThrottlingService interactionThrottlingService = new InteractionThrottlingService(botProperties, null);
         managerActionHandler = new ManagerActionHandler(
             botProperties,
             managerOrdersIntegrationService,
             new TelegramMessageFactory(),
-            telegramApiExecutor
+            telegramApiExecutor,
+            interactionThrottlingService,
+            securityAuditService
         );
     }
 
@@ -91,6 +99,28 @@ class ManagerActionHandlerTest {
         assertThat(((AnswerCallbackQuery) response).getText()).isEqualTo("Manager actions are not available for this account.");
         verify(managerOrdersIntegrationService, never()).confirmOrder(any(), any());
         verify(telegramApiExecutor, never()).execute(any(SendMessage.class));
+    }
+
+    @Test
+    void duplicateManagerActionIsRejectedBeforeRepeatingBackendCall() {
+        when(managerOrdersIntegrationService.confirmOrder(55L, "Accepted from Telegram by manager 10")).thenReturn(new OrderDto(
+            55L,
+            11L,
+            "PROCESSING",
+            new BigDecimal("19.99"),
+            "USD",
+            List.of(),
+            Instant.parse("2026-03-17T18:00:00Z")
+        ));
+
+        managerActionHandler.handleCallback(context(callbackUpdate(10L, 20L, "cb-1", "manager:order:accept:55")));
+        BotApiMethod<?> duplicateResponse = managerActionHandler.handleCallback(
+            context(callbackUpdate(10L, 20L, "cb-2", "manager:order:accept:55"))
+        );
+
+        assertThat(duplicateResponse).isInstanceOf(AnswerCallbackQuery.class);
+        assertThat(((AnswerCallbackQuery) duplicateResponse).getText()).contains("already being processed");
+        verify(managerOrdersIntegrationService, times(1)).confirmOrder(55L, "Accepted from Telegram by manager 10");
     }
 
     private BotUpdateContext context(Update update) {

@@ -6,6 +6,8 @@ import com.onlinestore.telegrambot.integration.service.AiAssistantService;
 import com.onlinestore.telegrambot.session.UserSession;
 import com.onlinestore.telegrambot.session.UserSessionService;
 import com.onlinestore.telegrambot.session.UserState;
+import com.onlinestore.telegrambot.support.InteractionThrottlingService;
+import com.onlinestore.telegrambot.support.SecurityAuditService;
 import com.onlinestore.telegrambot.support.TelegramMessageFactory;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,11 +23,17 @@ public class AiAssistantFlowService {
 
     private static final String CALLBACK_PREFIX = "assistant:";
     private static final String CLEAR_CALLBACK = CALLBACK_PREFIX + "clear";
+    private static final String ASSISTANT_RATE_LIMIT_MESSAGE =
+        "You're sending assistant requests too quickly. Please wait a moment and try again.";
+    private static final String ASSISTANT_STATE_PERSISTENCE_MESSAGE =
+        "The assistant reply was generated, but conversation memory could not be saved. You can continue, but recent context may be missing.";
 
     private final AiAssistantService aiAssistantService;
     private final UserSessionService userSessionService;
     private final TelegramMessageFactory telegramMessageFactory;
     private final BotProperties botProperties;
+    private final InteractionThrottlingService interactionThrottlingService;
+    private final SecurityAuditService securityAuditService;
 
     public BotApiMethod<?> openPrompt(BotUpdateContext updateContext, UserSession userSession, String source) {
         if (!botProperties.getAiAssistant().isEnabled()) {
@@ -40,6 +48,21 @@ public class AiAssistantFlowService {
     }
 
     public BotApiMethod<?> handleAssistantInput(BotUpdateContext updateContext, UserSession userSession) {
+        InteractionThrottlingService.ThrottleDecision throttleDecision =
+            interactionThrottlingService.consumeAssistantRequest(updateContext.getUserId());
+        if (!throttleDecision.allowed()) {
+            securityAuditService.logRateLimitExceeded(
+                "assistant-requests",
+                updateContext.getUserId(),
+                updateContext.getChatId(),
+                throttleDecision.retryAfter()
+            );
+            return telegramMessageFactory.message(
+                updateContext.getChatId(),
+                new BotView(ASSISTANT_RATE_LIMIT_MESSAGE, assistantKeyboard(aiAssistantService.hasConversation(userSession)))
+            );
+        }
+
         try {
             AiAssistantService.AiAssistantReply reply = aiAssistantService.answer(
                 userSession,
@@ -47,7 +70,22 @@ public class AiAssistantFlowService {
             );
             boolean hasConversation = aiAssistantService.hasConversation(userSession) || !reply.sessionAttributes().isEmpty();
             if (!reply.sessionAttributes().isEmpty()) {
-                userSessionService.rememberInputs(userSession, updateContext.getChatId(), reply.sessionAttributes());
+                try {
+                    userSessionService.rememberInputs(userSession, updateContext.getChatId(), reply.sessionAttributes());
+                } catch (RuntimeException ex) {
+                    securityAuditService.logAssistantStatePersistenceFailure(
+                        updateContext.getUserId(),
+                        updateContext.getChatId(),
+                        ex
+                    );
+                    return telegramMessageFactory.message(
+                        updateContext.getChatId(),
+                        new BotView(
+                            reply.message() + "\n\n" + ASSISTANT_STATE_PERSISTENCE_MESSAGE,
+                            assistantKeyboard(aiAssistantService.hasConversation(userSession))
+                        )
+                    );
+                }
             }
             return telegramMessageFactory.message(updateContext.getChatId(), new BotView(reply.message(), assistantKeyboard(hasConversation)));
         } catch (AiAssistantException ex) {

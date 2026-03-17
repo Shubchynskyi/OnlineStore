@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.onlinestore.telegrambot.config.BotProperties;
@@ -12,6 +14,8 @@ import com.onlinestore.telegrambot.session.UserSession;
 import com.onlinestore.telegrambot.session.UserSessionService;
 import com.onlinestore.telegrambot.session.UserSessionStore;
 import com.onlinestore.telegrambot.session.UserState;
+import com.onlinestore.telegrambot.support.InteractionThrottlingService;
+import com.onlinestore.telegrambot.support.SecurityAuditService;
 import com.onlinestore.telegrambot.support.TelegramMessageFactory;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -36,25 +40,32 @@ class AiAssistantFlowServiceTests {
 
     @Mock
     private AiAssistantService aiAssistantService;
+    @Mock
+    private SecurityAuditService securityAuditService;
 
     private InMemoryUserSessionStore inMemoryUserSessionStore;
     private UserSessionService userSessionService;
     private AiAssistantFlowService aiAssistantFlowService;
+    private BotProperties botProperties;
+    private InteractionThrottlingService interactionThrottlingService;
 
     @BeforeEach
     void setUp() {
         inMemoryUserSessionStore = new InMemoryUserSessionStore();
 
-        BotProperties botProperties = new BotProperties();
+        botProperties = new BotProperties();
         botProperties.setToken("test-token");
         botProperties.getAiAssistant().setEnabled(true);
+        interactionThrottlingService = new InteractionThrottlingService(botProperties, null);
 
         userSessionService = new UserSessionService(inMemoryUserSessionStore, botProperties);
         aiAssistantFlowService = new AiAssistantFlowService(
             aiAssistantService,
             userSessionService,
             new TelegramMessageFactory(),
-            botProperties
+            botProperties,
+            interactionThrottlingService,
+            securityAuditService
         );
         LinkedHashMap<String, String> clearedConversationAttributes = new LinkedHashMap<>();
         clearedConversationAttributes.put("assistantConversationHistory", null);
@@ -133,6 +144,64 @@ class AiAssistantFlowServiceTests {
             );
     }
 
+    @Test
+    void assistantInputIsRateLimitedBeforeRepeatedAiCalls() {
+        botProperties.getProtection().getRateLimit().getAiRequests().setMaxEvents(1);
+        when(aiAssistantService.answer(any(UserSession.class), eq("recommend tea"))).thenReturn(
+            new AiAssistantService.AiAssistantReply("Try Green Tea.", Map.of())
+        );
+
+        UserSession initialSession = userSessionService.getOrCreate(10L, 20L);
+        UserSession assistantSession = userSessionService.transitionTo(initialSession, 20L, UserState.CHATTING_WITH_AI, "/assistant");
+
+        aiAssistantFlowService.handleAssistantInput(updateContext(textUpdate(10L, 20L, 2, "recommend tea")), assistantSession);
+        BotApiMethod<?> throttledResponse = aiAssistantFlowService.handleAssistantInput(
+            updateContext(textUpdate(10L, 20L, 3, "recommend tea")),
+            assistantSession
+        );
+
+        assertThat(throttledResponse).isInstanceOf(SendMessage.class);
+        assertThat(((SendMessage) throttledResponse).getText()).contains("too quickly");
+        verify(aiAssistantService, times(1)).answer(any(UserSession.class), eq("recommend tea"));
+    }
+
+    @Test
+    void assistantInputReturnsReplyButWarnsWhenConversationStateCannotBeSaved() {
+        when(aiAssistantService.answer(any(UserSession.class), eq("recommend tea"))).thenReturn(
+            new AiAssistantService.AiAssistantReply(
+                "Try Green Tea for a balanced everyday option.",
+                Map.of("assistantConversationHistory", "[{\"role\":\"assistant\",\"content\":\"Try Green Tea\"}]")
+            )
+        );
+
+        FailingUserSessionStore failingUserSessionStore = new FailingUserSessionStore();
+        UserSessionService failingSessionService = new UserSessionService(failingUserSessionStore, botProperties);
+        AiAssistantFlowService failingFlowService = new AiAssistantFlowService(
+            aiAssistantService,
+            failingSessionService,
+            new TelegramMessageFactory(),
+            botProperties,
+            interactionThrottlingService,
+            securityAuditService
+        );
+
+        UserSession initialSession = failingSessionService.getOrCreate(10L, 20L);
+        UserSession assistantSession = failingSessionService.transitionTo(initialSession, 20L, UserState.CHATTING_WITH_AI, "/assistant");
+        failingUserSessionStore.failOnNextSave();
+
+        BotApiMethod<?> response = failingFlowService.handleAssistantInput(
+            updateContext(textUpdate(10L, 20L, 4, "recommend tea")),
+            assistantSession
+        );
+
+        assertThat(response).isInstanceOf(SendMessage.class);
+        assertThat(((SendMessage) response).getText())
+            .contains("Try Green Tea")
+            .contains("conversation memory could not be saved");
+        assertThat(failingUserSessionStore.findByUserId(10L).orElseThrow().getAttributes())
+            .doesNotContainKey("assistantConversationHistory");
+    }
+
     private BotUpdateContext updateContext(Update update) {
         return BotUpdateContext.from(update).orElseThrow();
     }
@@ -175,6 +244,36 @@ class AiAssistantFlowServiceTests {
 
         @Override
         public UserSession save(UserSession userSession) {
+            storage.put(userSession.getUserId(), userSession);
+            return userSession;
+        }
+
+        @Override
+        public void deleteByUserId(Long userId) {
+            storage.remove(userId);
+        }
+    }
+
+    private static final class FailingUserSessionStore implements UserSessionStore {
+
+        private final Map<Long, UserSession> storage = new ConcurrentHashMap<>();
+        private volatile boolean failOnNextSave;
+
+        private void failOnNextSave() {
+            this.failOnNextSave = true;
+        }
+
+        @Override
+        public Optional<UserSession> findByUserId(Long userId) {
+            return Optional.ofNullable(storage.get(userId));
+        }
+
+        @Override
+        public UserSession save(UserSession userSession) {
+            if (failOnNextSave) {
+                failOnNextSave = false;
+                throw new IllegalStateException("Redis save failed");
+            }
             storage.put(userSession.getUserId(), userSession);
             return userSession;
         }

@@ -10,6 +10,8 @@ import com.onlinestore.telegrambot.integration.service.CartIntegrationService;
 import com.onlinestore.telegrambot.session.UserSession;
 import com.onlinestore.telegrambot.session.UserSessionService;
 import com.onlinestore.telegrambot.session.UserState;
+import com.onlinestore.telegrambot.support.InteractionThrottlingService;
+import com.onlinestore.telegrambot.support.SecurityAuditService;
 import com.onlinestore.telegrambot.support.TelegramMessageFactory;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -32,10 +34,14 @@ public class CartFlowService {
     private static final String REFRESH_CALLBACK = CALLBACK_PREFIX + "refresh";
     private static final String RECOVERY_MESSAGE =
         "Your cart was updated in the store while you were chatting. Review the latest version below.";
+    private static final String CART_ACTION_IN_PROGRESS_MESSAGE =
+        "This cart action is already being processed. Please wait a moment and refresh if needed.";
 
     private final CartIntegrationService cartIntegrationService;
     private final UserSessionService userSessionService;
     private final TelegramMessageFactory telegramMessageFactory;
+    private final InteractionThrottlingService interactionThrottlingService;
+    private final SecurityAuditService securityAuditService;
 
     public static String addVariantCallback(Long variantId) {
         return ADD_PREFIX + variantId;
@@ -81,6 +87,9 @@ public class CartFlowService {
         if (variantId == null) {
             return unavailableAction(updateContext, "Unknown product variant.");
         }
+        if (!tryAcquireCartMutation(updateContext, callbackData)) {
+            return unavailableAction(updateContext, CART_ACTION_IN_PROGRESS_MESSAGE);
+        }
 
         try {
             CartDto cart = cartIntegrationService.addItem(updateContext.getUserId(), new AddCartItemRequest(variantId, 1));
@@ -108,6 +117,10 @@ public class CartFlowService {
         Long itemId = safeParseLong(tokens[2]);
         if (itemId == null) {
             return unavailableAction(updateContext, "Unknown cart item.");
+        }
+
+        if (!"info".equals(tokens[3]) && !tryAcquireCartMutation(updateContext, callbackData)) {
+            return unavailableAction(updateContext, CART_ACTION_IN_PROGRESS_MESSAGE);
         }
 
         CartDto currentCart = cartIntegrationService.getCart(updateContext.getUserId());
@@ -300,6 +313,14 @@ public class CartFlowService {
 
     private BotApiMethod<?> unavailableAction(BotUpdateContext updateContext, String message) {
         return telegramMessageFactory.callbackNotice(updateContext.callbackQueryId().orElseThrow(), message);
+    }
+
+    private boolean tryAcquireCartMutation(BotUpdateContext updateContext, String callbackData) {
+        boolean acquired = interactionThrottlingService.tryAcquireCartMutation(updateContext.getUserId(), callbackData);
+        if (!acquired) {
+            securityAuditService.logReplayRejected("cart-mutation", updateContext.getUserId(), updateContext.getChatId());
+        }
+        return acquired;
     }
 
     private BotApiMethod<?> sendOrEdit(BotUpdateContext updateContext, BotView botView) {

@@ -38,7 +38,9 @@ import com.onlinestore.telegrambot.session.UserSession;
 import com.onlinestore.telegrambot.session.UserSessionService;
 import com.onlinestore.telegrambot.session.UserSessionStore;
 import com.onlinestore.telegrambot.session.UserState;
+import com.onlinestore.telegrambot.support.InteractionThrottlingService;
 import com.onlinestore.telegrambot.support.PendingWriteGuardService;
+import com.onlinestore.telegrambot.support.SecurityAuditService;
 import com.onlinestore.telegrambot.support.TelegramApiExecutor;
 import com.onlinestore.telegrambot.support.TelegramMessageFactory;
 import com.onlinestore.telegrambot.support.UserInteractionLockService;
@@ -89,6 +91,8 @@ class BotUpdateDispatcherTests {
     private ManagerOrdersIntegrationService managerOrdersIntegrationService;
     @Mock
     private TelegramApiExecutor telegramApiExecutor;
+    @Mock
+    private SecurityAuditService securityAuditService;
 
     private InMemoryUserSessionStore inMemoryUserSessionStore;
     private UserSessionService userSessionService;
@@ -307,6 +311,26 @@ class BotUpdateDispatcherTests {
         verify(telegramApiExecutor).execute(any(SendMessage.class));
     }
 
+    @Test
+    void repeatedUserUpdatesAreRateLimitedBeforeRouting() {
+        BotProperties botProperties = createBotProperties();
+        botProperties.getProtection().getRateLimit().getUserUpdates().setMaxEvents(1);
+        InMemoryUserSessionStore localStore = new InMemoryUserSessionStore();
+        UserSessionService localUserSessionService = new UserSessionService(localStore, botProperties);
+        BotUpdateDispatcher localDispatcher = createDispatcher(
+            localUserSessionService,
+            localStore,
+            customerAccessTokenResolver,
+            botProperties
+        );
+
+        localDispatcher.dispatch(textUpdate(10L, 20L, 1, "/search"));
+        BotApiMethod<?> throttledResponse = localDispatcher.dispatch(textUpdate(10L, 20L, 2, "/catalog"));
+
+        assertThat(throttledResponse).isInstanceOf(SendMessage.class);
+        assertThat(((SendMessage) throttledResponse).getText()).contains("too quickly");
+    }
+
     private BotUpdateDispatcher createDispatcher(
         UserSessionService sessionService,
         UserSessionStore sessionStore,
@@ -315,6 +339,7 @@ class BotUpdateDispatcherTests {
     ) {
         UserStateMachine userStateMachine = new UserStateMachine();
         TelegramMessageFactory telegramMessageFactory = new TelegramMessageFactory();
+        InteractionThrottlingService interactionThrottlingService = new InteractionThrottlingService(botProperties, null);
 
         CatalogIntegrationService catalogIntegrationService = new CatalogIntegrationService(catalogApiClient);
         SearchIntegrationService searchIntegrationService = new SearchIntegrationService(searchApiClient, botProperties);
@@ -339,7 +364,9 @@ class BotUpdateDispatcherTests {
         CartFlowService cartFlowService = new CartFlowService(
             cartIntegrationService,
             sessionService,
-            telegramMessageFactory
+            telegramMessageFactory,
+            interactionThrottlingService,
+            securityAuditService
         );
         CheckoutFlowService checkoutFlowService = new CheckoutFlowService(
             cartIntegrationService,
@@ -367,7 +394,9 @@ class BotUpdateDispatcherTests {
             aiAssistantService,
             sessionService,
             telegramMessageFactory,
-            botProperties
+            botProperties,
+            interactionThrottlingService,
+            securityAuditService
         );
 
         return new BotUpdateDispatcher(
@@ -395,7 +424,9 @@ class BotUpdateDispatcherTests {
                     botProperties,
                     managerOrdersIntegrationService,
                     telegramMessageFactory,
-                    telegramApiExecutor
+                    telegramApiExecutor,
+                    interactionThrottlingService,
+                    securityAuditService
                 )
             ),
             new TextMessageRouter(
@@ -408,7 +439,9 @@ class BotUpdateDispatcherTests {
                 aiAssistantFlowService
             ),
             telegramMessageFactory,
-            createUserInteractionLockService(botProperties)
+            createUserInteractionLockService(botProperties),
+            interactionThrottlingService,
+            securityAuditService
         );
     }
 
