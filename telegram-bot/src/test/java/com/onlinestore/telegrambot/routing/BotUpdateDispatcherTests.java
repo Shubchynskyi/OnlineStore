@@ -16,6 +16,7 @@ import com.onlinestore.telegrambot.integration.client.CatalogApiClient;
 import com.onlinestore.telegrambot.integration.client.OrdersApiClient;
 import com.onlinestore.telegrambot.integration.client.SearchApiClient;
 import com.onlinestore.telegrambot.integration.dto.PageResponse;
+import com.onlinestore.telegrambot.integration.service.AiAssistantService;
 import com.onlinestore.telegrambot.integration.dto.address.AddressDto;
 import com.onlinestore.telegrambot.integration.dto.cart.CartDto;
 import com.onlinestore.telegrambot.integration.dto.catalog.CategoryDto;
@@ -119,6 +120,15 @@ class BotUpdateDispatcherTests {
         assertThat(response).isInstanceOf(EditMessageText.class);
         assertThat(((EditMessageText) response).getText()).contains("Catalog categories").contains("Tea");
         assertThat(inMemoryUserSessionStore.findByUserId(10L).orElseThrow().getState()).isEqualTo(UserState.BROWSING_CATALOG);
+    }
+
+    @Test
+    void assistantRouteCallbackOpensAssistantPrompt() {
+        BotApiMethod<?> response = botUpdateDispatcher.dispatch(callbackUpdate(10L, 20L, 7, "cb-assistant", "route:assistant"));
+
+        assertThat(response).isInstanceOf(EditMessageText.class);
+        assertThat(((EditMessageText) response).getText()).contains("Assistant mode is active");
+        assertThat(inMemoryUserSessionStore.findByUserId(10L).orElseThrow().getState()).isEqualTo(UserState.CHATTING_WITH_AI);
     }
 
     @Test
@@ -318,6 +328,19 @@ class BotUpdateDispatcherTests {
                 ordersIntegrationService,
                 botProperties
             );
+        AiAssistantService aiAssistantService = mock(AiAssistantService.class);
+        lenient().when(aiAssistantService.answer(any(UserSession.class), any(String.class))).thenReturn(
+            new AiAssistantService.AiAssistantReply(
+                "AI assistant response",
+                Map.of("assistantConversationHistory", "[]")
+            )
+        );
+        AiAssistantFlowService aiAssistantFlowService = new AiAssistantFlowService(
+            aiAssistantService,
+            sessionService,
+            telegramMessageFactory,
+            botProperties
+        );
 
         return new BotUpdateDispatcher(
             sessionService,
@@ -327,7 +350,8 @@ class BotUpdateDispatcherTests {
                 mainMenuRouteResponseService,
                 catalogBrowserService,
                 searchFlowService,
-                cartFlowService
+                cartFlowService,
+                aiAssistantFlowService
             ),
             new CallbackQueryRouter(
                 userStateMachine,
@@ -337,7 +361,8 @@ class BotUpdateDispatcherTests {
                 catalogBrowserService,
                 searchFlowService,
                 cartFlowService,
-                checkoutFlowService
+                checkoutFlowService,
+                aiAssistantFlowService
             ),
             new TextMessageRouter(
                 userStateMachine,
@@ -345,7 +370,8 @@ class BotUpdateDispatcherTests {
                 telegramMessageFactory,
                 ordersIntegrationService,
                 searchFlowService,
-                checkoutFlowService
+                checkoutFlowService,
+                aiAssistantFlowService
             ),
             telegramMessageFactory,
             createUserInteractionLockService(botProperties)
@@ -365,6 +391,7 @@ class BotUpdateDispatcherTests {
     private BotProperties createBotProperties() {
         BotProperties botProperties = new BotProperties();
         botProperties.setToken("test-token");
+        botProperties.getAiAssistant().setEnabled(true);
         botProperties.getBackendApi().setCatalogPageSize(3);
         botProperties.getBackendApi().setSearchPageSize(5);
         botProperties.getBackendApi().setRecentOrdersPageSize(3);

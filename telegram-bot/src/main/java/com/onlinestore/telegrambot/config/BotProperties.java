@@ -6,6 +6,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import java.net.URI;
 import java.time.Duration;
 import lombok.Getter;
@@ -38,7 +40,7 @@ public class BotProperties {
     private Duration sessionTtl = Duration.ofHours(12);
 
     @NotNull
-    private Duration interactionLockTtl = Duration.ofSeconds(30);
+    private Duration interactionLockTtl = Duration.ofMinutes(4);
 
     @Valid
     @NotNull
@@ -47,6 +49,10 @@ public class BotProperties {
     @Valid
     @NotNull
     private BackendApi backendApi = new BackendApi();
+
+    @Valid
+    @NotNull
+    private AiAssistant aiAssistant = new AiAssistant();
 
     public boolean isWebhookEnabled() {
         return StringUtils.hasText(webhookUrl);
@@ -134,6 +140,74 @@ public class BotProperties {
         @AssertTrue(message = "telegram.bot.backend-api.service-auth.client-secret is required when enabled")
         public boolean isClientSecretValid() {
             return !enabled || StringUtils.hasText(clientSecret);
+        }
+    }
+
+    @Getter
+    @Setter
+    public static class AiAssistant {
+
+        private boolean enabled;
+
+        private String baseUrl = "https://api.openai.com/v1";
+
+        private String apiKey;
+
+        private String model = "gpt-4o-mini";
+
+        @Positive
+        private int maxCompletionTokens = 320;
+
+        @Positive
+        private int maxHistoryMessages = 10;
+
+        @Positive
+        private int maxRetrievedProducts = 3;
+
+        @Positive
+        private int maxProductDescriptionCharacters = 160;
+
+        @Positive
+        private int maxUserMessageCharacters = 500;
+
+        @Positive
+        private int maxSessionTokens = 4000;
+
+        @DecimalMin("0.0")
+        @DecimalMax("2.0")
+        private double temperature = 0.2d;
+
+        @NotBlank
+        private String fallbackMessage =
+            "The AI assistant is temporarily unavailable. Please use /search or /catalog and try again later.";
+
+        @NotBlank
+        private String tokenBudgetMessage =
+            "This assistant chat reached the session token budget. Clear the conversation and try again.";
+
+        @NotNull
+        private Duration connectTimeout = Duration.ofSeconds(5);
+
+        @NotNull
+        private Duration readTimeout = Duration.ofSeconds(30);
+
+        @Valid
+        @NotNull
+        private Retry retry = new Retry();
+
+        @AssertTrue(message = "telegram.bot.ai-assistant.base-url must be an absolute URL when enabled")
+        public boolean isBaseUrlValid() {
+            return !enabled || isAbsoluteUrl(baseUrl);
+        }
+
+        @AssertTrue(message = "telegram.bot.ai-assistant.api-key is required when enabled")
+        public boolean isApiKeyValid() {
+            return !enabled || StringUtils.hasText(apiKey);
+        }
+
+        @AssertTrue(message = "telegram.bot.ai-assistant.model is required when enabled")
+        public boolean isModelValid() {
+            return !enabled || StringUtils.hasText(model);
         }
     }
 

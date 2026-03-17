@@ -22,6 +22,7 @@ public class CallbackQueryRouter {
     private final SearchFlowService searchFlowService;
     private final CartFlowService cartFlowService;
     private final CheckoutFlowService checkoutFlowService;
+    private final AiAssistantFlowService aiAssistantFlowService;
 
     public BotApiMethod<?> route(BotUpdateContext updateContext, UserSession userSession) {
         String callbackData = updateContext.callbackData().orElse("");
@@ -41,6 +42,10 @@ public class CallbackQueryRouter {
             return checkoutFlowService.handleCallback(updateContext, userSession);
         }
 
+        if (callbackData.startsWith("assistant:")) {
+            return aiAssistantFlowService.handleCallback(updateContext, userSession);
+        }
+
         if (!callbackData.startsWith(ROUTE_PREFIX)) {
             return telegramMessageFactory.callbackNotice(
                 updateContext.callbackQueryId().orElseThrow(),
@@ -57,6 +62,9 @@ public class CallbackQueryRouter {
         }
         if ("cart".equals(route)) {
             return cartFlowService.openCart(updateContext, userSession, "callback:route:cart");
+        }
+        if ("assistant".equals(route)) {
+            return aiAssistantFlowService.openPrompt(updateContext, userSession, "callback:route:assistant");
         }
 
         UserState nextState = userStateMachine.resolveRoute(route).orElse(null);

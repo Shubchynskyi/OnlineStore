@@ -18,6 +18,7 @@ public class CoreCommandRouter {
     private final CatalogBrowserService catalogBrowserService;
     private final SearchFlowService searchFlowService;
     private final CartFlowService cartFlowService;
+    private final AiAssistantFlowService aiAssistantFlowService;
 
     public BotApiMethod<?> route(BotUpdateContext updateContext, UserSession userSession) {
         String command = updateContext.command()
@@ -29,9 +30,10 @@ public class CoreCommandRouter {
             case "search" -> searchFlowService.openPrompt(updateContext, userSession, "/" + command);
             case "cart" -> cartFlowService.openCart(updateContext, userSession, "/" + command);
             case "order" -> routeToMenu(updateContext, userSession, UserState.TRACKING_ORDER, "/" + command, command);
+            case "assistant" -> aiAssistantFlowService.openPrompt(updateContext, userSession, "/" + command);
             default -> telegramMessageFactory.menuMessage(
                 updateContext.getChatId(),
-                "Unknown command. Supported commands are /start, /catalog, /search, /cart, and /order."
+                "Unknown command. Supported commands are /start, /catalog, /search, /cart, /order, and /assistant."
             );
         };
     }

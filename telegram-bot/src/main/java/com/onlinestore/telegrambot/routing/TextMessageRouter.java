@@ -23,6 +23,7 @@ public class TextMessageRouter {
     private final OrdersIntegrationService ordersIntegrationService;
     private final SearchFlowService searchFlowService;
     private final CheckoutFlowService checkoutFlowService;
+    private final AiAssistantFlowService aiAssistantFlowService;
 
     public BotApiMethod<?> route(BotUpdateContext updateContext, UserSession userSession) {
         if (userSession.getState() == UserState.SEARCHING) {
@@ -44,6 +45,10 @@ public class TextMessageRouter {
             );
         }
 
+        if (userSession.getState() == UserState.CHATTING_WITH_AI) {
+            return aiAssistantFlowService.handleAssistantInput(updateContext, userSession);
+        }
+
         return userStateMachine.resolveTextInputKey(userSession.getState())
             .map(attributeKey -> {
                 userSessionService.rememberInput(
@@ -59,7 +64,7 @@ public class TextMessageRouter {
             })
             .orElseGet(() -> telegramMessageFactory.menuMessage(
                 updateContext.getChatId(),
-                "Free-text input is supported after /search, /order, or during checkout address entry."
+                "Free-text input is supported after /search, /order, /assistant, or during checkout address entry."
             ));
     }
 

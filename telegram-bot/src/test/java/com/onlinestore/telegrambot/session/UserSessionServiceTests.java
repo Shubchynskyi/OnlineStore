@@ -92,6 +92,34 @@ class UserSessionServiceTests {
     }
 
     @Test
+    void transitionToPreservesAssistantConversationState() {
+        UserSession existingSession = UserSession.builder()
+            .userId(100L)
+            .chatId(200L)
+            .state(UserState.CHATTING_WITH_AI)
+            .lastCommand("/assistant")
+            .attributes(new LinkedHashMap<>(Map.of(
+                "assistantConversationHistory", "[{\"role\":\"user\",\"content\":\"tea\"}]",
+                "assistantTotalTokens", "180",
+                "assistantPromptTokens", "120",
+                "assistantCompletionTokens", "60",
+                "searchQuery", "milk"
+            )))
+            .updatedAtEpochMillis(1L)
+            .build();
+        inMemoryUserSessionStore.save(existingSession);
+
+        UserSession updatedSession = userSessionService.transitionTo(existingSession, 200L, UserState.MAIN_MENU, "/start");
+
+        assertThat(updatedSession.getAttributes())
+            .containsEntry("assistantConversationHistory", "[{\"role\":\"user\",\"content\":\"tea\"}]")
+            .containsEntry("assistantTotalTokens", "180")
+            .containsEntry("assistantPromptTokens", "120")
+            .containsEntry("assistantCompletionTokens", "60")
+            .doesNotContainKey("searchQuery");
+    }
+
+    @Test
     void rememberInputPreservesStateAndStoresAttribute() {
         UserSession initialSession = userSessionService.getOrCreate(100L, 200L);
         UserSession searchingSession = userSessionService.transitionTo(initialSession, 200L, UserState.SEARCHING, "/search");

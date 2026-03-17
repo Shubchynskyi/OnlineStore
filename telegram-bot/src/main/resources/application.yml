@@ -32,6 +32,7 @@ telegram:
     webhook-path: ${TELEGRAM_WEBHOOK_PATH:/telegram/webhook}
     base-url: ${TELEGRAM_BASE_URL:https://api.telegram.org}
     session-ttl: ${TELEGRAM_SESSION_TTL:12h}
+    interaction-lock-ttl: ${TELEGRAM_INTERACTION_LOCK_TTL:4m}
     retry:
       max-attempts: ${TELEGRAM_RETRY_MAX_ATTEMPTS:3}
       backoff: ${TELEGRAM_RETRY_BACKOFF:500ms}
@@ -52,3 +53,22 @@ telegram:
         client-id: ${BACKEND_SERVICE_AUTH_CLIENT_ID:telegram-bot}
         client-secret: ${BACKEND_SERVICE_AUTH_CLIENT_SECRET:}
         scope: ${BACKEND_SERVICE_AUTH_SCOPE:}
+    ai-assistant:
+      enabled: ${TELEGRAM_AI_ASSISTANT_ENABLED:false}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+      api-key: ${OPENAI_API_KEY:}
+      model: ${OPENAI_MODEL:gpt-4o-mini}
+      max-completion-tokens: ${OPENAI_MAX_COMPLETION_TOKENS:320}
+      max-history-messages: ${OPENAI_MAX_HISTORY_MESSAGES:10}
+      max-retrieved-products: ${OPENAI_MAX_RETRIEVED_PRODUCTS:3}
+      max-product-description-characters: ${OPENAI_MAX_PRODUCT_DESCRIPTION_CHARACTERS:160}
+      max-user-message-characters: ${OPENAI_MAX_USER_MESSAGE_CHARACTERS:500}
+      max-session-tokens: ${OPENAI_MAX_SESSION_TOKENS:4000}
+      temperature: ${OPENAI_TEMPERATURE:0.2}
+      fallback-message: "${OPENAI_FALLBACK_MESSAGE:The AI assistant is temporarily unavailable. Please use /search or /catalog and try again later.}"
+      token-budget-message: "${OPENAI_TOKEN_BUDGET_MESSAGE:This assistant chat reached the session token budget. Clear the conversation and try again.}"
+      connect-timeout: ${OPENAI_CONNECT_TIMEOUT:5s}
+      read-timeout: ${OPENAI_READ_TIMEOUT:30s}
+      retry:
+        max-attempts: ${OPENAI_RETRY_MAX_ATTEMPTS:2}
+        backoff: ${OPENAI_RETRY_BACKOFF:500ms}

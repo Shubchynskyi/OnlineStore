@@ -27,8 +27,10 @@ public class MainMenuRouteResponseService {
 
     public String responseForRoute(String route, Long telegramUserId) {
         return switch (route) {
-            case "start" -> "Welcome to the OnlineStore bot.\nUse the inline menu to browse the catalog, search products, open your cart, or track an order.";
-            case "main-menu" -> "Main menu is ready.\nChoose what you want to do next.";
+            case "start" ->
+                "Welcome to the OnlineStore bot.\nUse the inline menu to browse the catalog, search products, open your cart, track an order, or ask the AI assistant for product guidance.";
+            case "main-menu" ->
+                "Main menu is ready.\nChoose what you want to do next, including product discovery with the AI assistant.";
             case "catalog" -> catalogResponse();
             case "search" -> "Search mode is active. Send a product name or keywords.";
             case "cart" -> cartResponse(telegramUserId);

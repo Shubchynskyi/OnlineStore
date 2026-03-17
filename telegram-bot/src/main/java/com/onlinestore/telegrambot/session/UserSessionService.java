@@ -77,6 +77,7 @@ public class UserSessionService {
 
     private boolean isDurableAttribute(String attributeKey, String tokenAttributeKey) {
         return tokenAttributeKey.equals(attributeKey)
+            || attributeKey.startsWith("assistant")
             || attributeKey.endsWith("SubmissionState")
             || attributeKey.endsWith("SubmissionKey")
             || attributeKey.endsWith("SubmissionFingerprint");

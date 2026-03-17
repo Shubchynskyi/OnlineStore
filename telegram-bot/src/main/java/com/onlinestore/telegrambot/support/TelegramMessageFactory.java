@@ -81,6 +81,7 @@ public class TelegramMessageFactory {
                     callbackButton("Orders", "route:order")
                 ),
                 new InlineKeyboardRow(
+                    callbackButton("Assistant", "route:assistant"),
                     callbackButton("Main menu", "route:main-menu")
                 )
             ))

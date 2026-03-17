@@ -69,6 +69,15 @@ public enum UserState {
 - Successful checkout transitions the dialog into order-tracking mode with the created order id, while `/order` remains the follow-up status lookup path for numeric order ids.
 - Cart and checkout callbacks now recover gracefully when backend data changes mid-conversation by refreshing the latest cart/address state instead of leaving the dialog stuck on stale data.
 
+### T-006 Implementation Notes
+- The bot now exposes an `/assistant` command and inline main-menu entry that open a dedicated AI chat flow for product discovery questions.
+- Assistant requests are sent to OpenAI through a dedicated `RestClient` integration configured by `TELEGRAM_AI_ASSISTANT_ENABLED`, `OPENAI_API_KEY`, `OPENAI_MODEL`, timeout settings, and bounded retry controls.
+- Each assistant turn builds a store-aware prompt that combines live public search results with catalog product data so recommendations stay grounded in current OnlineStore inventory context.
+- Conversation history and assistant token counters are stored inside the existing Redis-backed user session, survive route changes, and can be reset with the in-chat `Clear chat` action.
+- The per-user interaction lock is now configurable via `TELEGRAM_INTERACTION_LOCK_TTL` and defaults to `4m` so Redis-backed assistant session updates remain serialized across the slower search + catalog + AI request path, including configured retry windows.
+- Token/cost exposure is controlled with bounded input length, capped completion tokens, trimmed conversation history, and a per-session token budget that stops further OpenAI calls until the user clears the chat.
+- When OpenAI is disabled or temporarily unavailable, the bot returns a sanitized fallback message without corrupting the dialog state and still directs users toward `/catalog` and `/search`.
+
 ### 2.2 AI Chat (OpenAI)
 - [ ] System prompt with store context
 - [ ] RAG: search for relevant products via Elasticsearch

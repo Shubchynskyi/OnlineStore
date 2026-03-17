@@ -13,7 +13,8 @@ public class UserStateMachine {
         "catalog", UserState.BROWSING_CATALOG,
         "search", UserState.SEARCHING,
         "cart", UserState.VIEWING_CART,
-        "order", UserState.TRACKING_ORDER
+        "order", UserState.TRACKING_ORDER,
+        "assistant", UserState.CHATTING_WITH_AI
     );
 
     private static final Map<UserState, String> TEXT_INPUT_KEYS = Map.of(
@@ -36,7 +37,7 @@ public class UserStateMachine {
             case SEARCHING -> "Search query saved. Product search integration arrives in T-003.";
             case TRACKING_ORDER -> "Order reference saved. Order lookup integration arrives in T-003.";
             case ENTERING_ADDRESS -> "Address saved. Checkout flow arrives in T-005.";
-            case CHATTING_WITH_AI -> "Message saved. AI assistant arrives in T-006.";
+            case CHATTING_WITH_AI -> "Assistant mode is active. Send your next product question.";
             default -> "Text input is not expected in the current dialog state.";
         };
     }
