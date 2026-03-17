@@ -3,21 +3,27 @@ package com.onlinestore.telegrambot.routing;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.onlinestore.telegrambot.config.BotProperties;
 import com.onlinestore.telegrambot.integration.BackendApiException;
+import com.onlinestore.telegrambot.integration.client.AddressApiClient;
 import com.onlinestore.telegrambot.integration.client.CartApiClient;
 import com.onlinestore.telegrambot.integration.client.CatalogApiClient;
 import com.onlinestore.telegrambot.integration.client.OrdersApiClient;
 import com.onlinestore.telegrambot.integration.client.SearchApiClient;
 import com.onlinestore.telegrambot.integration.dto.PageResponse;
+import com.onlinestore.telegrambot.integration.dto.address.AddressDto;
 import com.onlinestore.telegrambot.integration.dto.cart.CartDto;
 import com.onlinestore.telegrambot.integration.dto.catalog.CategoryDto;
 import com.onlinestore.telegrambot.integration.dto.catalog.CategoryWithProductsDto;
 import com.onlinestore.telegrambot.integration.dto.catalog.ProductDto;
 import com.onlinestore.telegrambot.integration.dto.catalog.ProductFilter;
 import com.onlinestore.telegrambot.integration.dto.catalog.VariantDto;
+import com.onlinestore.telegrambot.integration.service.AddressIntegrationService;
 import com.onlinestore.telegrambot.integration.service.CartIntegrationService;
 import com.onlinestore.telegrambot.integration.service.CatalogIntegrationService;
 import com.onlinestore.telegrambot.integration.service.CustomerAccessTokenResolver;
@@ -28,7 +34,9 @@ import com.onlinestore.telegrambot.session.UserSession;
 import com.onlinestore.telegrambot.session.UserSessionService;
 import com.onlinestore.telegrambot.session.UserSessionStore;
 import com.onlinestore.telegrambot.session.UserState;
+import com.onlinestore.telegrambot.support.PendingWriteGuardService;
 import com.onlinestore.telegrambot.support.TelegramMessageFactory;
+import com.onlinestore.telegrambot.support.UserInteractionLockService;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +47,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.telegram.telegrambots.meta.api.methods.botapimethods.BotApiMethod;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
@@ -63,6 +73,9 @@ class BotUpdateDispatcherTests {
 
     @Mock
     private OrdersApiClient ordersApiClient;
+
+    @Mock
+    private AddressApiClient addressApiClient;
 
     @Mock
     private CustomerAccessTokenResolver customerAccessTokenResolver;
@@ -203,7 +216,7 @@ class BotUpdateDispatcherTests {
         BotApiMethod<?> response = localDispatcher.dispatch(textUpdate(10L, 20L, 3, "/cart"));
 
         assertThat(response).isInstanceOf(SendMessage.class);
-        assertThat(((SendMessage) response).getText()).contains("Cart integration is active");
+        assertThat(((SendMessage) response).getText()).contains("Your cart").contains("currently empty");
         assertThat(localStore.findByUserId(10L).orElseThrow().getAttributes())
             .containsEntry("backendAccessToken", "customer-token");
     }
@@ -228,6 +241,34 @@ class BotUpdateDispatcherTests {
             .doesNotContain("/api/v1/cart");
     }
 
+    @Test
+    void checkoutCallbackRoutesToAddressEntryFlow() {
+        when(customerAccessTokenResolver.resolveAccessToken(10L)).thenReturn(Optional.of("customer-token"));
+        when(cartApiClient.getCart("customer-token")).thenReturn(new CartDto(
+            new BigDecimal("9.00"),
+            "USD",
+            List.of(new com.onlinestore.telegrambot.integration.dto.cart.CartItemDto(
+                11L,
+                500L,
+                "Green Tea",
+                "Default",
+                "SKU-500",
+                2,
+                new BigDecimal("4.50"),
+                "USD",
+                new BigDecimal("9.00")
+            ))
+        ));
+        when(addressApiClient.getAddresses("customer-token")).thenReturn(List.of());
+
+        botUpdateDispatcher.dispatch(textUpdate(10L, 20L, 3, "/cart"));
+        BotApiMethod<?> response = botUpdateDispatcher.dispatch(callbackUpdate(10L, 20L, 3, "cb-4", "checkout:start"));
+
+        assertThat(response).isInstanceOf(EditMessageText.class);
+        assertThat(((EditMessageText) response).getText()).contains("country code");
+        assertThat(inMemoryUserSessionStore.findByUserId(10L).orElseThrow().getState()).isEqualTo(UserState.ENTERING_ADDRESS);
+    }
+
     private BotUpdateDispatcher createDispatcher(
         UserSessionService sessionService,
         UserSessionStore sessionStore,
@@ -240,6 +281,8 @@ class BotUpdateDispatcherTests {
         CatalogIntegrationService catalogIntegrationService = new CatalogIntegrationService(catalogApiClient);
         SearchIntegrationService searchIntegrationService = new SearchIntegrationService(searchApiClient, botProperties);
         CartIntegrationService cartIntegrationService = new CartIntegrationService(cartApiClient, accessTokenResolver);
+        AddressIntegrationService addressIntegrationService =
+            new AddressIntegrationService(addressApiClient, accessTokenResolver);
         OrdersIntegrationService ordersIntegrationService =
             new OrdersIntegrationService(ordersApiClient, accessTokenResolver, botProperties);
         CatalogBrowserService catalogBrowserService = new CatalogBrowserService(
@@ -254,6 +297,19 @@ class BotUpdateDispatcherTests {
             sessionService,
             telegramMessageFactory,
             botProperties
+        );
+        CartFlowService cartFlowService = new CartFlowService(
+            cartIntegrationService,
+            sessionService,
+            telegramMessageFactory
+        );
+        CheckoutFlowService checkoutFlowService = new CheckoutFlowService(
+            cartIntegrationService,
+            addressIntegrationService,
+            ordersIntegrationService,
+            sessionService,
+            telegramMessageFactory,
+            new PendingWriteGuardService()
         );
         MainMenuRouteResponseService mainMenuRouteResponseService =
             new MainMenuRouteResponseService(
@@ -270,7 +326,8 @@ class BotUpdateDispatcherTests {
                 telegramMessageFactory,
                 mainMenuRouteResponseService,
                 catalogBrowserService,
-                searchFlowService
+                searchFlowService,
+                cartFlowService
             ),
             new CallbackQueryRouter(
                 userStateMachine,
@@ -278,17 +335,31 @@ class BotUpdateDispatcherTests {
                 telegramMessageFactory,
                 mainMenuRouteResponseService,
                 catalogBrowserService,
-                searchFlowService
+                searchFlowService,
+                cartFlowService,
+                checkoutFlowService
             ),
             new TextMessageRouter(
                 userStateMachine,
                 sessionService,
                 telegramMessageFactory,
                 ordersIntegrationService,
-                searchFlowService
+                searchFlowService,
+                checkoutFlowService
             ),
-            telegramMessageFactory
+            telegramMessageFactory,
+            createUserInteractionLockService(botProperties)
         );
+    }
+
+    @SuppressWarnings("unchecked")
+    private UserInteractionLockService createUserInteractionLockService(BotProperties botProperties) {
+        StringRedisTemplate stringRedisTemplate = mock(StringRedisTemplate.class);
+        ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
+        lenient().when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        lenient().when(valueOperations.setIfAbsent(any(), any(), any())).thenReturn(true);
+        lenient().doReturn(1L).when(stringRedisTemplate).execute(any(), any(), any());
+        return new UserInteractionLockService(stringRedisTemplate, botProperties);
     }
 
     private BotProperties createBotProperties() {

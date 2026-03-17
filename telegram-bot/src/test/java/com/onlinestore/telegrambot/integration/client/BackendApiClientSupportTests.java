@@ -109,4 +109,48 @@ class BackendApiClientSupportTests {
 
         verify(requestSupplier, times(2)).get();
     }
+
+    @Test
+    void nonIdempotentOperationsDoNotRetryRetryableFailures() {
+        @SuppressWarnings("unchecked")
+        Supplier<String> requestSupplier = mock(Supplier.class);
+        when(requestSupplier.get()).thenThrow(new RestClientResponseException(
+            "Service Unavailable",
+            503,
+            "Service Unavailable",
+            HttpHeaders.EMPTY,
+            """
+            {"status":503,"error":"SERVICE_UNAVAILABLE","message":"please retry later","path":"/api/v1/orders"}
+            """.getBytes(StandardCharsets.UTF_8),
+            StandardCharsets.UTF_8
+        ));
+
+        assertThatThrownBy(() -> backendApiClientSupport.executeWithoutRetry("orders.createOrder", requestSupplier))
+            .isInstanceOf(BackendApiException.class)
+            .satisfies(throwable -> {
+                BackendApiException exception = (BackendApiException) throwable;
+                assertThat(exception.getStatusCode()).isEqualTo(503);
+                assertThat(exception.getMessage()).isEqualTo("The store service is temporarily unavailable. Please try again later.");
+            });
+
+        verify(requestSupplier, times(1)).get();
+    }
+
+    @Test
+    void nonIdempotentOperationsDoNotRetryConnectivityFailures() {
+        @SuppressWarnings("unchecked")
+        Supplier<String> requestSupplier = mock(Supplier.class);
+        when(requestSupplier.get()).thenThrow(new ResourceAccessException(
+            "I/O error on POST request for \"http://localhost:8080/api/v1/orders\": timeout"
+        ));
+
+        assertThatThrownBy(() -> backendApiClientSupport.executeWithoutRetry("orders.createOrder", requestSupplier))
+            .isInstanceOf(BackendApiException.class)
+            .satisfies(throwable -> {
+                BackendApiException exception = (BackendApiException) throwable;
+                assertThat(exception.getMessage()).isEqualTo("The store service is temporarily unavailable. Please try again later.");
+            });
+
+        verify(requestSupplier, times(1)).get();
+    }
 }

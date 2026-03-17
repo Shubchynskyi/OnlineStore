@@ -3,6 +3,7 @@ package com.onlinestore.telegrambot.routing;
 import com.onlinestore.telegrambot.session.UserSession;
 import com.onlinestore.telegrambot.session.UserSessionService;
 import com.onlinestore.telegrambot.support.TelegramMessageFactory;
+import com.onlinestore.telegrambot.support.UserInteractionLockService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.botapimethods.BotApiMethod;
@@ -17,6 +18,7 @@ public class BotUpdateDispatcher {
     private final CallbackQueryRouter callbackQueryRouter;
     private final TextMessageRouter textMessageRouter;
     private final TelegramMessageFactory telegramMessageFactory;
+    private final UserInteractionLockService userInteractionLockService;
 
     public BotApiMethod<?> dispatch(Update update) {
         BotUpdateContext updateContext = BotUpdateContext.from(update).orElse(null);
@@ -24,6 +26,13 @@ public class BotUpdateDispatcher {
             return null;
         }
 
+        return userInteractionLockService.withUserLock(
+            updateContext.getUserId(),
+            () -> dispatchWithinUserLock(updateContext)
+        );
+    }
+
+    private BotApiMethod<?> dispatchWithinUserLock(BotUpdateContext updateContext) {
         UserSession userSession = userSessionService.getOrCreate(updateContext.getUserId(), updateContext.getChatId());
 
         if (updateContext.command().isPresent()) {

@@ -160,7 +160,7 @@ public class SearchFlowService {
             text.append("\n\n").append(product.description());
         }
 
-        return sendOrEdit(updateContext, new BotView(text.toString(), productDetailKeyboard()));
+        return sendOrEdit(updateContext, new BotView(text.toString(), productDetailKeyboard(product)));
     }
 
     private BotView promptView(String hint) {
@@ -209,16 +209,24 @@ public class SearchFlowService {
         return telegramMessageFactory.keyboard(rows);
     }
 
-    private InlineKeyboardMarkup productDetailKeyboard() {
-        return telegramMessageFactory.keyboard(List.of(
-            new InlineKeyboardRow(
-                telegramMessageFactory.callbackButton("Back to results", RESULTS_BACK_CALLBACK)
-            ),
-            new InlineKeyboardRow(
-                telegramMessageFactory.callbackButton("New search", PROMPT_CALLBACK),
-                telegramMessageFactory.callbackButton("Main menu", "route:main-menu")
-            )
+    private InlineKeyboardMarkup productDetailKeyboard(ProductDto product) {
+        List<InlineKeyboardRow> rows = new ArrayList<>();
+        rows.add(new InlineKeyboardRow(
+            telegramMessageFactory.callbackButton("Back to results", RESULTS_BACK_CALLBACK)
         ));
+        for (VariantDto variant : availableVariants(product)) {
+            String buttonText = product.variants() != null && product.variants().size() > 1
+                ? "Add " + valueOrDash(variant.name())
+                : "Add to cart";
+            rows.add(new InlineKeyboardRow(
+                telegramMessageFactory.callbackButton(buttonText, CartFlowService.addVariantCallback(variant.id()))
+            ));
+        }
+        rows.add(new InlineKeyboardRow(
+            telegramMessageFactory.callbackButton("Open cart", "route:cart"),
+            telegramMessageFactory.callbackButton("Main menu", "route:main-menu")
+        ));
+        return telegramMessageFactory.keyboard(rows);
     }
 
     private void addPaginationRow(List<InlineKeyboardRow> rows, int page, int pageCount) {
@@ -310,6 +318,15 @@ public class SearchFlowService {
 
     private int storedPage(UserSession userSession) {
         return safeParseInt(userSession.getAttributes().get(ATTRIBUTE_PAGE));
+    }
+
+    private List<VariantDto> availableVariants(ProductDto product) {
+        if (product.variants() == null) {
+            return List.of();
+        }
+        return product.variants().stream()
+            .filter(variant -> variant.active() && variant.stock() != null && variant.stock() > 0)
+            .toList();
     }
 
     private int safeParseInt(String value) {

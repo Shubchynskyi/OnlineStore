@@ -191,7 +191,7 @@ public class CatalogBrowserService {
             ATTRIBUTE_PRODUCT_SLUG, product.slug()
         ));
 
-        return sendOrEdit(updateContext, new BotView(buildProductDetail(product), categoryProductDetailKeyboard()));
+        return sendOrEdit(updateContext, new BotView(buildProductDetail(product), categoryProductDetailKeyboard(product)));
     }
 
     private InlineKeyboardMarkup categoryKeyboard(List<CategoryDto> categories, int page, int pageCount) {
@@ -228,16 +228,27 @@ public class CatalogBrowserService {
         return telegramMessageFactory.keyboard(rows);
     }
 
-    private InlineKeyboardMarkup categoryProductDetailKeyboard() {
-        return telegramMessageFactory.keyboard(List.of(
-            new InlineKeyboardRow(
-                telegramMessageFactory.callbackButton("Back to products", CATEGORY_BACK_CALLBACK)
-            ),
-            new InlineKeyboardRow(
-                telegramMessageFactory.callbackButton("All categories", CATEGORIES_BACK_CALLBACK),
-                telegramMessageFactory.callbackButton("Main menu", "route:main-menu")
-            )
+    private InlineKeyboardMarkup categoryProductDetailKeyboard(ProductDto product) {
+        List<InlineKeyboardRow> rows = new ArrayList<>();
+        rows.add(new InlineKeyboardRow(
+            telegramMessageFactory.callbackButton("Back to products", CATEGORY_BACK_CALLBACK)
         ));
+        for (VariantDto variant : availableVariants(product)) {
+            String buttonText = product.variants() != null && product.variants().size() > 1
+                ? "Add " + valueOrDash(variant.name())
+                : "Add to cart";
+            rows.add(new InlineKeyboardRow(
+                telegramMessageFactory.callbackButton(buttonText, CartFlowService.addVariantCallback(variant.id()))
+            ));
+        }
+        rows.add(new InlineKeyboardRow(
+            telegramMessageFactory.callbackButton("Open cart", "route:cart"),
+            telegramMessageFactory.callbackButton("Main menu", "route:main-menu")
+        ));
+        rows.add(new InlineKeyboardRow(
+            telegramMessageFactory.callbackButton("All categories", CATEGORIES_BACK_CALLBACK)
+        ));
+        return telegramMessageFactory.keyboard(rows);
     }
 
     private InlineKeyboardMarkup fallbackKeyboard() {
@@ -328,6 +339,15 @@ public class CatalogBrowserService {
         return product.variants().stream()
             .map(VariantDto::stock)
             .anyMatch(stock -> stock != null && stock > 0);
+    }
+
+    private List<VariantDto> availableVariants(ProductDto product) {
+        if (product.variants() == null) {
+            return List.of();
+        }
+        return product.variants().stream()
+            .filter(variant -> variant.active() && variant.stock() != null && variant.stock() > 0)
+            .toList();
     }
 
     private String priceSummary(ProductDto product) {

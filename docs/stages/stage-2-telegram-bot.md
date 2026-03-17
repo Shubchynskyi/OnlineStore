@@ -62,6 +62,13 @@ public enum UserState {
 - Search flow now collects a free-text query, renders pageable product cards, opens product detail views, and keeps the active query/page in session attributes for callback pagination.
 - Empty search results reuse the existing search integration for suggestion hints while detailed cards and detail views are rendered from public catalog product data.
 
+### T-005 Implementation Notes
+- `/cart` now opens a dedicated inline cart view with item-by-item quantity controls, remove actions, refresh, and a checkout entry point.
+- Product detail views in both catalog browsing and search now expose add-to-cart buttons for active in-stock variants and redirect customers into the cart flow after a successful add.
+- Checkout now supports saved-address selection plus guided step-by-step address capture in Telegram, then renders a confirmation screen before placing the order through the existing orders API.
+- Successful checkout transitions the dialog into order-tracking mode with the created order id, while `/order` remains the follow-up status lookup path for numeric order ids.
+- Cart and checkout callbacks now recover gracefully when backend data changes mid-conversation by refreshing the latest cart/address state instead of leaving the dialog stuck on stale data.
+
 ### 2.2 AI Chat (OpenAI)
 - [ ] System prompt with store context
 - [ ] RAG: search for relevant products via Elasticsearch

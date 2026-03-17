@@ -20,6 +20,8 @@ public class CallbackQueryRouter {
     private final MainMenuRouteResponseService mainMenuRouteResponseService;
     private final CatalogBrowserService catalogBrowserService;
     private final SearchFlowService searchFlowService;
+    private final CartFlowService cartFlowService;
+    private final CheckoutFlowService checkoutFlowService;
 
     public BotApiMethod<?> route(BotUpdateContext updateContext, UserSession userSession) {
         String callbackData = updateContext.callbackData().orElse("");
@@ -29,6 +31,14 @@ public class CallbackQueryRouter {
 
         if (callbackData.startsWith("search:")) {
             return searchFlowService.handleCallback(updateContext, userSession);
+        }
+
+        if (callbackData.startsWith("cart:")) {
+            return cartFlowService.handleCallback(updateContext, userSession);
+        }
+
+        if (callbackData.startsWith("checkout:")) {
+            return checkoutFlowService.handleCallback(updateContext, userSession);
         }
 
         if (!callbackData.startsWith(ROUTE_PREFIX)) {
@@ -44,6 +54,9 @@ public class CallbackQueryRouter {
         }
         if ("search".equals(route)) {
             return searchFlowService.openPrompt(updateContext, userSession, "callback:route:search");
+        }
+        if ("cart".equals(route)) {
+            return cartFlowService.openCart(updateContext, userSession, "callback:route:cart");
         }
 
         UserState nextState = userStateMachine.resolveRoute(route).orElse(null);

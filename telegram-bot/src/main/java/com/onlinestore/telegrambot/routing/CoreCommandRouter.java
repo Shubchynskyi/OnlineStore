@@ -17,6 +17,7 @@ public class CoreCommandRouter {
     private final MainMenuRouteResponseService mainMenuRouteResponseService;
     private final CatalogBrowserService catalogBrowserService;
     private final SearchFlowService searchFlowService;
+    private final CartFlowService cartFlowService;
 
     public BotApiMethod<?> route(BotUpdateContext updateContext, UserSession userSession) {
         String command = updateContext.command()
@@ -26,7 +27,7 @@ public class CoreCommandRouter {
             case "start" -> routeToMenu(updateContext, userSession, UserState.MAIN_MENU, "/" + command, command);
             case "catalog" -> catalogBrowserService.openCatalog(updateContext, userSession, "/" + command);
             case "search" -> searchFlowService.openPrompt(updateContext, userSession, "/" + command);
-            case "cart" -> routeToMenu(updateContext, userSession, UserState.VIEWING_CART, "/" + command, command);
+            case "cart" -> cartFlowService.openCart(updateContext, userSession, "/" + command);
             case "order" -> routeToMenu(updateContext, userSession, UserState.TRACKING_ORDER, "/" + command, command);
             default -> telegramMessageFactory.menuMessage(
                 updateContext.getChatId(),

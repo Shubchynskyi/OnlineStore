@@ -1,15 +1,19 @@
 package com.onlinestore.telegrambot.integration.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.onlinestore.telegrambot.config.BotProperties;
+import com.onlinestore.telegrambot.integration.BackendApiException;
 import com.onlinestore.telegrambot.integration.auth.BackendServiceAccessTokenProvider;
+import com.onlinestore.telegrambot.integration.dto.cart.AddCartItemRequest;
 import com.onlinestore.telegrambot.integration.dto.cart.CartDto;
 import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +66,20 @@ class CartApiClientTests {
         CartDto cartDto = cartApiClient.getCart("customer-token");
 
         assertThat(cartDto.totalCurrency()).isEqualTo("USD");
+        mockRestServiceServer.verify();
+    }
+
+    @Test
+    void addItemDoesNotRetryRetryableWriteFailures() {
+        mockRestServiceServer.expect(requestTo("http://localhost:8080/api/v1/cart/items"))
+            .andExpect(method(HttpMethod.POST))
+            .andExpect(header("Authorization", "Bearer customer-token"))
+            .andRespond(withServerError());
+
+        assertThatThrownBy(() -> cartApiClient.addItem("customer-token", new AddCartItemRequest(77L, 1)))
+            .isInstanceOf(BackendApiException.class)
+            .hasMessage("The store service is temporarily unavailable. Please try again later.");
+
         mockRestServiceServer.verify();
     }
 }

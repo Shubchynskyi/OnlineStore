@@ -43,8 +43,15 @@ public class BackendApiClientSupport {
     }
 
     public <T> T execute(String operation, Supplier<T> requestSupplier) {
+        return executeInternal(operation, requestSupplier, botProperties.getBackendApi().getRetry().getMaxAttempts());
+    }
+
+    public <T> T executeWithoutRetry(String operation, Supplier<T> requestSupplier) {
+        return executeInternal(operation, requestSupplier, 1);
+    }
+
+    private <T> T executeInternal(String operation, Supplier<T> requestSupplier, int maxAttempts) {
         BotProperties.Retry retrySettings = botProperties.getBackendApi().getRetry();
-        int maxAttempts = retrySettings.getMaxAttempts();
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {

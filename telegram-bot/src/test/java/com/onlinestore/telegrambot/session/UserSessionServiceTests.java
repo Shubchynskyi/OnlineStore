@@ -66,6 +66,32 @@ class UserSessionServiceTests {
     }
 
     @Test
+    void transitionToPreservesPendingSubmissionGuards() {
+        UserSession existingSession = UserSession.builder()
+            .userId(100L)
+            .chatId(200L)
+            .state(UserState.CONFIRMING_ORDER)
+            .lastCommand("checkout:confirm")
+            .attributes(new LinkedHashMap<>(Map.of(
+                "checkoutOrderSubmissionState", "pending",
+                "checkoutOrderSubmissionKey", "cart-snapshot|7",
+                "checkoutAddressSubmissionFingerprint", "US|New York|Main Street|10001",
+                "searchQuery", "milk"
+            )))
+            .updatedAtEpochMillis(1L)
+            .build();
+        inMemoryUserSessionStore.save(existingSession);
+
+        UserSession updatedSession = userSessionService.transitionTo(existingSession, 200L, UserState.VIEWING_CART, "/cart");
+
+        assertThat(updatedSession.getAttributes())
+            .containsEntry("checkoutOrderSubmissionState", "pending")
+            .containsEntry("checkoutOrderSubmissionKey", "cart-snapshot|7")
+            .containsEntry("checkoutAddressSubmissionFingerprint", "US|New York|Main Street|10001")
+            .doesNotContainKey("searchQuery");
+    }
+
+    @Test
     void rememberInputPreservesStateAndStoresAttribute() {
         UserSession initialSession = userSessionService.getOrCreate(100L, 200L);
         UserSession searchingSession = userSessionService.transitionTo(initialSession, 200L, UserState.SEARCHING, "/search");

@@ -20,7 +20,7 @@ public class OrdersApiClient {
     private final BackendApiClientSupport backendApiClientSupport;
 
     public OrderDto createOrder(String accessToken, CreateOrderRequest request) {
-        return backendApiClientSupport.execute("orders.createOrder", () -> backendApiRestClient.post()
+        return backendApiClientSupport.executeWithoutRetry("orders.createOrder", () -> backendApiRestClient.post()
             .uri("/api/v1/orders")
             .headers(headers -> headers.setBearerAuth(accessToken))
             .body(request)

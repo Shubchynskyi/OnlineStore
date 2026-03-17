@@ -67,10 +67,18 @@ public class UserSessionService {
     private LinkedHashMap<String, String> preserveDurableAttributes(UserSession userSession) {
         LinkedHashMap<String, String> durableAttributes = new LinkedHashMap<>();
         String tokenAttributeKey = botProperties.getBackendApi().getCustomerTokenAttributeKey();
-        String tokenValue = userSession.getAttributes().get(tokenAttributeKey);
-        if (tokenValue != null) {
-            durableAttributes.put(tokenAttributeKey, tokenValue);
-        }
+        userSession.getAttributes().forEach((attributeKey, attributeValue) -> {
+            if (attributeValue != null && isDurableAttribute(attributeKey, tokenAttributeKey)) {
+                durableAttributes.put(attributeKey, attributeValue);
+            }
+        });
         return durableAttributes;
+    }
+
+    private boolean isDurableAttribute(String attributeKey, String tokenAttributeKey) {
+        return tokenAttributeKey.equals(attributeKey)
+            || attributeKey.endsWith("SubmissionState")
+            || attributeKey.endsWith("SubmissionKey")
+            || attributeKey.endsWith("SubmissionFingerprint");
     }
 }

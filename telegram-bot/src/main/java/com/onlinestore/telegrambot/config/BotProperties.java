@@ -37,6 +37,9 @@ public class BotProperties {
     @NotNull
     private Duration sessionTtl = Duration.ofHours(12);
 
+    @NotNull
+    private Duration interactionLockTtl = Duration.ofSeconds(30);
+
     @Valid
     @NotNull
     private Retry retry = new Retry();
