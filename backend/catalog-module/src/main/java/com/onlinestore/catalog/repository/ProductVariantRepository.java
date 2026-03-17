@@ -16,7 +16,7 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
     @Query("SELECT pv FROM ProductVariant pv JOIN FETCH pv.product WHERE pv.id IN :ids")
     List<ProductVariant> findAllWithProductByIdIn(@Param("ids") Collection<Long> ids);
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE ProductVariant pv SET pv.stock = pv.stock - :quantity WHERE pv.id = :variantId AND pv.stock >= :quantity")
     int reserveStock(@Param("variantId") Long variantId, @Param("quantity") Integer quantity);
 }

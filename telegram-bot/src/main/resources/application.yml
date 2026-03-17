@@ -1,6 +1,11 @@
 spring:
   application:
     name: telegram-bot
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:admin}
+    password: ${RABBITMQ_PASSWORD:admin_password}
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -72,3 +77,10 @@ telegram:
       retry:
         max-attempts: ${OPENAI_RETRY_MAX_ATTEMPTS:2}
         backoff: ${OPENAI_RETRY_BACKOFF:500ms}
+    manager-notifications:
+      enabled: ${TELEGRAM_MANAGER_NOTIFICATIONS_ENABLED:false}
+      chat-id: ${TELEGRAM_MANAGER_CHAT_ID:}
+      chat-ids: ${TELEGRAM_MANAGER_CHAT_IDS:}
+      notify-order-created: ${TELEGRAM_MANAGER_NOTIFY_ORDER_CREATED:true}
+      notify-order-status-changed: ${TELEGRAM_MANAGER_NOTIFY_ORDER_STATUS_CHANGED:true}
+      notify-product-low-stock: ${TELEGRAM_MANAGER_NOTIFY_PRODUCT_LOW_STOCK:true}

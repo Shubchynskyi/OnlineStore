@@ -3,9 +3,11 @@ package com.onlinestore.telegrambot.integration.client;
 import com.onlinestore.telegrambot.integration.dto.PageResponse;
 import com.onlinestore.telegrambot.integration.dto.orders.CreateOrderRequest;
 import com.onlinestore.telegrambot.integration.dto.orders.OrderDto;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
 @Component
@@ -44,6 +46,18 @@ public class OrdersApiClient {
         return backendApiClientSupport.execute("orders.getOrder", () -> backendApiRestClient.get()
             .uri("/api/v1/orders/{id}", orderId)
             .headers(headers -> headers.setBearerAuth(accessToken))
+            .retrieve()
+            .body(OrderDto.class));
+    }
+
+    public OrderDto confirmOrder(String comment, Long orderId) {
+        return backendApiClientSupport.executeWithoutRetry("orders.confirmOrder", () -> backendApiRestClient.patch()
+            .uri(uriBuilder -> uriBuilder
+                .path("/api/admin/orders/{id}/status")
+                .queryParam("event", "MANAGER_CONFIRM")
+                .queryParamIfPresent("comment", Optional.ofNullable(comment).filter(StringUtils::hasText))
+                .build(orderId))
+            .headers(backendApiClientSupport::applyRequiredServiceAuthentication)
             .retrieve()
             .body(OrderDto.class));
     }

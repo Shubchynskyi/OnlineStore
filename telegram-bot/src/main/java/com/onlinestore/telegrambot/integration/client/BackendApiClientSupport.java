@@ -42,6 +42,13 @@ public class BackendApiClientSupport {
         }
     }
 
+    public void applyRequiredServiceAuthentication(HttpHeaders headers) {
+        if (!backendServiceAccessTokenProvider.isEnabled()) {
+            throw new IllegalStateException("Backend service authentication is disabled for manager order actions.");
+        }
+        headers.setBearerAuth(backendServiceAccessTokenProvider.getAccessToken());
+    }
+
     public <T> T execute(String operation, Supplier<T> requestSupplier) {
         return executeInternal(operation, requestSupplier, botProperties.getBackendApi().getRetry().getMaxAttempts());
     }

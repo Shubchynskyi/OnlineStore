@@ -3,6 +3,7 @@ package com.onlinestore.telegrambot.routing;
 import com.onlinestore.telegrambot.session.UserSession;
 import com.onlinestore.telegrambot.session.UserSessionService;
 import com.onlinestore.telegrambot.session.UserState;
+import com.onlinestore.telegrambot.notifications.ManagerActionHandler;
 import com.onlinestore.telegrambot.support.TelegramMessageFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -23,9 +24,14 @@ public class CallbackQueryRouter {
     private final CartFlowService cartFlowService;
     private final CheckoutFlowService checkoutFlowService;
     private final AiAssistantFlowService aiAssistantFlowService;
+    private final ManagerActionHandler managerActionHandler;
 
     public BotApiMethod<?> route(BotUpdateContext updateContext, UserSession userSession) {
         String callbackData = updateContext.callbackData().orElse("");
+        if (callbackData.startsWith("manager:")) {
+            return managerActionHandler.handleCallback(updateContext);
+        }
+
         if (callbackData.startsWith("catalog:")) {
             return catalogBrowserService.handleCallback(updateContext, userSession);
         }

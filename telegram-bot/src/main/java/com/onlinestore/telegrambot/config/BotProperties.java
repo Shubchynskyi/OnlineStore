@@ -10,6 +10,9 @@ import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import java.net.URI;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.util.StringUtils;
@@ -53,6 +56,10 @@ public class BotProperties {
     @Valid
     @NotNull
     private AiAssistant aiAssistant = new AiAssistant();
+
+    @Valid
+    @NotNull
+    private ManagerNotifications managerNotifications = new ManagerNotifications();
 
     public boolean isWebhookEnabled() {
         return StringUtils.hasText(webhookUrl);
@@ -208,6 +215,52 @@ public class BotProperties {
         @AssertTrue(message = "telegram.bot.ai-assistant.model is required when enabled")
         public boolean isModelValid() {
             return !enabled || StringUtils.hasText(model);
+        }
+    }
+
+    @Getter
+    @Setter
+    public static class ManagerNotifications {
+
+        private boolean enabled;
+
+        private String chatId;
+
+        @NotNull
+        private String chatIds = "";
+
+        private boolean notifyOrderCreated = true;
+
+        private boolean notifyOrderStatusChanged = true;
+
+        private boolean notifyProductLowStock = true;
+
+        public List<Long> resolveChatIds() {
+            LinkedHashSet<Long> resolvedChatIds = new LinkedHashSet<>();
+            if (StringUtils.hasText(chatId)) {
+                resolvedChatIds.add(parseChatId(chatId.trim()));
+            }
+            if (StringUtils.hasText(chatIds)) {
+                for (String candidate : chatIds.split("[,;\\r\\n]+")) {
+                    if (StringUtils.hasText(candidate)) {
+                        resolvedChatIds.add(parseChatId(candidate.trim()));
+                    }
+                }
+            }
+            return List.copyOf(resolvedChatIds);
+        }
+
+        @AssertTrue(message = "telegram.bot.manager-notifications requires at least one chat id when enabled")
+        public boolean hasConfiguredRecipients() {
+            return !enabled || !resolveChatIds().isEmpty();
+        }
+
+        private Long parseChatId(String value) {
+            try {
+                return Long.parseLong(value);
+            } catch (NumberFormatException ex) {
+                throw new IllegalStateException("Invalid manager chat id: " + value, ex);
+            }
         }
     }
 

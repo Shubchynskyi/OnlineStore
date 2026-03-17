@@ -85,11 +85,18 @@ public enum UserState {
 
 ### 2.3 Manager Notifications
 - [ ] RabbitMQ Listener for events:
-  - `orders.created` → New order
-  - `orders.status-changed` → Status change
-  - `products.low-stock` → Product running out
+  - `order.created` → New order
+  - `order.status-changed` → Status change
+  - `product.low-stock` → Product running out
 - [ ] Manager channel/group
 - [ ] Inline buttons: Accept order, Call customer
+
+### T-007 Implementation Notes
+- Manager notifications are now consumed directly by `telegram-bot` through dedicated RabbitMQ listeners bound to `order.events` and `product.events`.
+- Manager delivery is configuration-driven via `TELEGRAM_MANAGER_NOTIFICATIONS_ENABLED`, legacy `TELEGRAM_MANAGER_CHAT_ID`, and optional `TELEGRAM_MANAGER_CHAT_IDS` for additional chats/groups.
+- Order notifications now include inline Telegram actions for acknowledge, customer handoff, and conditional `Accept order` when the backend status is `PAID`.
+- `Accept order` reuses the existing backend admin transition `PATCH /api/admin/orders/{id}/status?event=MANAGER_CONFIRM` and therefore requires bot service-auth to be enabled with manager-capable credentials.
+- The backend now emits `product.low-stock` only when a reservation crosses a variant from above its low-stock threshold to at-or-below the threshold, which avoids duplicate alerts on every subsequent reservation below the threshold.
 
 ---
 

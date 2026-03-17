@@ -22,15 +22,19 @@
 		<lombok.version>1.18.38</lombok.version>
 	</properties>
 
- 	<dependencies>
+  	<dependencies>
+  		<dependency>
+  			<groupId>org.springframework.boot</groupId>
+  			<artifactId>spring-boot-starter-web</artifactId>
+  		</dependency>
  		<dependency>
  			<groupId>org.springframework.boot</groupId>
- 			<artifactId>spring-boot-starter-web</artifactId>
+ 			<artifactId>spring-boot-starter-amqp</artifactId>
  		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-redis</artifactId>
-		</dependency>
+ 		<dependency>
+ 			<groupId>org.springframework.boot</groupId>
+ 			<artifactId>spring-boot-starter-data-redis</artifactId>
+ 		</dependency>
  		<dependency>
  			<groupId>org.springframework.boot</groupId>
  			<artifactId>spring-boot-starter-actuator</artifactId>

@@ -18,6 +18,10 @@ public class TelegramMessageFactory {
         return message(chatId, botView.text(), botView.keyboard());
     }
 
+    public SendMessage message(Long chatId, String text) {
+        return message(chatId, text, null);
+    }
+
     public SendMessage message(Long chatId, String text, InlineKeyboardMarkup keyboard) {
         return SendMessage.builder()
             .chatId(chatId.toString())

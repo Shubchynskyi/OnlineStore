@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.onlinestore.telegrambot.config.BotProperties;
@@ -17,6 +18,7 @@ import com.onlinestore.telegrambot.integration.client.OrdersApiClient;
 import com.onlinestore.telegrambot.integration.client.SearchApiClient;
 import com.onlinestore.telegrambot.integration.dto.PageResponse;
 import com.onlinestore.telegrambot.integration.service.AiAssistantService;
+import com.onlinestore.telegrambot.integration.service.ManagerOrdersIntegrationService;
 import com.onlinestore.telegrambot.integration.dto.address.AddressDto;
 import com.onlinestore.telegrambot.integration.dto.cart.CartDto;
 import com.onlinestore.telegrambot.integration.dto.catalog.CategoryDto;
@@ -31,11 +33,13 @@ import com.onlinestore.telegrambot.integration.service.CustomerAccessTokenResolv
 import com.onlinestore.telegrambot.integration.service.OrdersIntegrationService;
 import com.onlinestore.telegrambot.integration.service.SessionCustomerAccessTokenResolver;
 import com.onlinestore.telegrambot.integration.service.SearchIntegrationService;
+import com.onlinestore.telegrambot.notifications.ManagerActionHandler;
 import com.onlinestore.telegrambot.session.UserSession;
 import com.onlinestore.telegrambot.session.UserSessionService;
 import com.onlinestore.telegrambot.session.UserSessionStore;
 import com.onlinestore.telegrambot.session.UserState;
 import com.onlinestore.telegrambot.support.PendingWriteGuardService;
+import com.onlinestore.telegrambot.support.TelegramApiExecutor;
 import com.onlinestore.telegrambot.support.TelegramMessageFactory;
 import com.onlinestore.telegrambot.support.UserInteractionLockService;
 import java.math.BigDecimal;
@@ -50,6 +54,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.botapimethods.BotApiMethod;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
@@ -80,6 +85,10 @@ class BotUpdateDispatcherTests {
 
     @Mock
     private CustomerAccessTokenResolver customerAccessTokenResolver;
+    @Mock
+    private ManagerOrdersIntegrationService managerOrdersIntegrationService;
+    @Mock
+    private TelegramApiExecutor telegramApiExecutor;
 
     private InMemoryUserSessionStore inMemoryUserSessionStore;
     private UserSessionService userSessionService;
@@ -279,6 +288,25 @@ class BotUpdateDispatcherTests {
         assertThat(inMemoryUserSessionStore.findByUserId(10L).orElseThrow().getState()).isEqualTo(UserState.ENTERING_ADDRESS);
     }
 
+    @Test
+    void managerCallbackRoutesThroughHandler() {
+        when(managerOrdersIntegrationService.confirmOrder(55L, "Accepted from Telegram by manager 10")).thenReturn(new com.onlinestore.telegrambot.integration.dto.orders.OrderDto(
+            55L,
+            99L,
+            "PROCESSING",
+            new BigDecimal("19.99"),
+            "USD",
+            List.of(),
+            java.time.Instant.parse("2026-03-17T18:00:00Z")
+        ));
+
+        BotApiMethod<?> response = botUpdateDispatcher.dispatch(callbackUpdate(10L, 20L, 9, "cb-manager", "manager:order:accept:55"));
+
+        assertThat(response).isInstanceOf(AnswerCallbackQuery.class);
+        assertThat(((AnswerCallbackQuery) response).getText()).isEqualTo("Order accepted.");
+        verify(telegramApiExecutor).execute(any(SendMessage.class));
+    }
+
     private BotUpdateDispatcher createDispatcher(
         UserSessionService sessionService,
         UserSessionStore sessionStore,
@@ -362,7 +390,13 @@ class BotUpdateDispatcherTests {
                 searchFlowService,
                 cartFlowService,
                 checkoutFlowService,
-                aiAssistantFlowService
+                aiAssistantFlowService,
+                new ManagerActionHandler(
+                    botProperties,
+                    managerOrdersIntegrationService,
+                    telegramMessageFactory,
+                    telegramApiExecutor
+                )
             ),
             new TextMessageRouter(
                 userStateMachine,
@@ -395,6 +429,7 @@ class BotUpdateDispatcherTests {
         botProperties.getBackendApi().setCatalogPageSize(3);
         botProperties.getBackendApi().setSearchPageSize(5);
         botProperties.getBackendApi().setRecentOrdersPageSize(3);
+        botProperties.getManagerNotifications().setChatId("20");
         return botProperties;
     }
 
