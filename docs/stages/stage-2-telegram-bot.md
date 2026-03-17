@@ -56,6 +56,12 @@ public enum UserState {
 - Service-auth token responses are now rejected unless Keycloak returns a JWT-shaped `access_token` with a positive `expires_in`, preventing invalid tokens from being cached and replayed across backend calls.
 - User-facing bot replies now surface sanitized backend-failure messages, while detailed backend status/error/path diagnostics remain in server logs for troubleshooting.
 
+### T-004 Implementation Notes
+- `/start`, `/catalog`, and `/search` now drive inline-first customer UX while preserving dialog-state consistency in the Redis-backed session.
+- Catalog browsing now supports pageable category navigation, per-category product cards, product detail views, and callback-driven return paths to category pages.
+- Search flow now collects a free-text query, renders pageable product cards, opens product detail views, and keeps the active query/page in session attributes for callback pagination.
+- Empty search results reuse the existing search integration for suggestion hints while detailed cards and detail views are rendered from public catalog product data.
+
 ### 2.2 AI Chat (OpenAI)
 - [ ] System prompt with store context
 - [ ] RAG: search for relevant products via Elasticsearch

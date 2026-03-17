@@ -2,6 +2,7 @@ package com.onlinestore.telegrambot.session;
 
 import com.onlinestore.telegrambot.config.BotProperties;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -30,8 +31,18 @@ public class UserSessionService {
     }
 
     public UserSession rememberInput(UserSession userSession, Long chatId, String attributeKey, String attributeValue) {
+        return rememberInputs(userSession, chatId, Map.of(attributeKey, attributeValue));
+    }
+
+    public UserSession rememberInputs(UserSession userSession, Long chatId, Map<String, String> attributes) {
         LinkedHashMap<String, String> updatedAttributes = new LinkedHashMap<>(userSession.getAttributes());
-        updatedAttributes.put(attributeKey, attributeValue);
+        attributes.forEach((attributeKey, attributeValue) -> {
+            if (attributeValue == null) {
+                updatedAttributes.remove(attributeKey);
+            } else {
+                updatedAttributes.put(attributeKey, attributeValue);
+            }
+        });
 
         UserSession updatedSession = userSession.toBuilder()
             .chatId(chatId)

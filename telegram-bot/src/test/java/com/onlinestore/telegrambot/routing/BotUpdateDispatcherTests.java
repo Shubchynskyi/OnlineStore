@@ -14,7 +14,10 @@ import com.onlinestore.telegrambot.integration.client.SearchApiClient;
 import com.onlinestore.telegrambot.integration.dto.PageResponse;
 import com.onlinestore.telegrambot.integration.dto.cart.CartDto;
 import com.onlinestore.telegrambot.integration.dto.catalog.CategoryDto;
-import com.onlinestore.telegrambot.integration.dto.search.ProductSearchResult;
+import com.onlinestore.telegrambot.integration.dto.catalog.CategoryWithProductsDto;
+import com.onlinestore.telegrambot.integration.dto.catalog.ProductDto;
+import com.onlinestore.telegrambot.integration.dto.catalog.ProductFilter;
+import com.onlinestore.telegrambot.integration.dto.catalog.VariantDto;
 import com.onlinestore.telegrambot.integration.service.CartIntegrationService;
 import com.onlinestore.telegrambot.integration.service.CatalogIntegrationService;
 import com.onlinestore.telegrambot.integration.service.CustomerAccessTokenResolver;
@@ -44,6 +47,7 @@ import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
 import org.telegram.telegrambots.meta.api.objects.chat.Chat;
 import org.telegram.telegrambots.meta.api.objects.message.Message;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 
 @ExtendWith(MockitoExtension.class)
 class BotUpdateDispatcherTests {
@@ -73,39 +77,11 @@ class BotUpdateDispatcherTests {
         BotProperties botProperties = createBotProperties();
         userSessionService = new UserSessionService(inMemoryUserSessionStore, botProperties);
 
-        UserStateMachine userStateMachine = new UserStateMachine();
-        TelegramMessageFactory telegramMessageFactory = new TelegramMessageFactory();
-
-        CatalogIntegrationService catalogIntegrationService = new CatalogIntegrationService(catalogApiClient);
-        SearchIntegrationService searchIntegrationService = new SearchIntegrationService(searchApiClient, botProperties);
-        CartIntegrationService cartIntegrationService = new CartIntegrationService(cartApiClient, customerAccessTokenResolver);
-        OrdersIntegrationService ordersIntegrationService =
-            new OrdersIntegrationService(ordersApiClient, customerAccessTokenResolver, botProperties);
-        MainMenuRouteResponseService mainMenuRouteResponseService =
-            new MainMenuRouteResponseService(
-                catalogIntegrationService,
-                cartIntegrationService,
-                ordersIntegrationService,
-                botProperties
-            );
-
-        botUpdateDispatcher = new BotUpdateDispatcher(
+        botUpdateDispatcher = createDispatcher(
             userSessionService,
-            new CoreCommandRouter(userSessionService, telegramMessageFactory, mainMenuRouteResponseService),
-            new CallbackQueryRouter(
-                userStateMachine,
-                userSessionService,
-                telegramMessageFactory,
-                mainMenuRouteResponseService
-            ),
-            new TextMessageRouter(
-                userStateMachine,
-                userSessionService,
-                telegramMessageFactory,
-                searchIntegrationService,
-                ordersIntegrationService
-            ),
-            telegramMessageFactory
+            inMemoryUserSessionStore,
+            customerAccessTokenResolver,
+            botProperties
         );
     }
 
@@ -128,24 +104,14 @@ class BotUpdateDispatcherTests {
         BotApiMethod<?> response = botUpdateDispatcher.dispatch(callbackUpdate(10L, 20L, 7, "cb-1", "route:catalog"));
 
         assertThat(response).isInstanceOf(EditMessageText.class);
-        assertThat(((EditMessageText) response).getText()).contains("Available categories").contains("Tea");
+        assertThat(((EditMessageText) response).getText()).contains("Catalog categories").contains("Tea");
         assertThat(inMemoryUserSessionStore.findByUserId(10L).orElseThrow().getState()).isEqualTo(UserState.BROWSING_CATALOG);
     }
 
     @Test
     void textInputStoresStateSpecificAttributeAndReturnsSearchResults() {
-        when(searchApiClient.search(any(), eq(0), eq(5))).thenReturn(new PageResponse<>(
-            List.of(new ProductSearchResult(
-                "sku-1",
-                "Green Tea",
-                "Loose leaf tea",
-                "Tea",
-                new BigDecimal("4.50"),
-                new BigDecimal("6.00"),
-                true,
-                List.of(),
-                1.0f
-            )),
+        when(catalogApiClient.getProducts(any(ProductFilter.class), eq(0), eq(5))).thenReturn(new PageResponse<>(
+            List.of(product(101L, "Green Tea", "green-tea", "Loose leaf tea", "Tea", "tea", new BigDecimal("4.50"))),
             0,
             5,
             1,
@@ -159,9 +125,61 @@ class BotUpdateDispatcherTests {
         BotApiMethod<?> response = botUpdateDispatcher.dispatch(textUpdate(10L, 20L, 2, "green tea"));
 
         assertThat(response).isInstanceOf(SendMessage.class);
-        assertThat(((SendMessage) response).getText()).contains("Top results").contains("Green Tea");
+        assertThat(((SendMessage) response).getText()).contains("Search results for").contains("Green Tea");
         assertThat(inMemoryUserSessionStore.findByUserId(10L).orElseThrow().getAttributes())
             .containsEntry("searchQuery", "green tea");
+    }
+
+    @Test
+    void catalogCategoryCallbackShowsInlineProductCards() {
+        when(catalogApiClient.getCategories()).thenReturn(List.of(
+            new CategoryDto(1L, "Tea", "tea", "Tea products"),
+            new CategoryDto(2L, "Coffee", "coffee", "Coffee products")
+        ));
+        when(catalogApiClient.getCategoryBySlug("tea", 0, 3)).thenReturn(new CategoryWithProductsDto(
+            new CategoryDto(1L, "Tea", "tea", "Tea products"),
+            new PageResponse<>(
+                List.of(product(101L, "Green Tea", "green-tea", "Loose leaf tea", "Tea", "tea", new BigDecimal("4.50"))),
+                0,
+                3,
+                1,
+                1,
+                true
+            )
+        ));
+
+        botUpdateDispatcher.dispatch(callbackUpdate(10L, 20L, 7, "cb-1", "route:catalog"));
+        BotApiMethod<?> response = botUpdateDispatcher.dispatch(callbackUpdate(10L, 20L, 7, "cb-2", "catalog:category:tea:0"));
+
+        assertThat(response).isInstanceOf(EditMessageText.class);
+        assertThat(((EditMessageText) response).getText()).contains("Tea products").contains("Green Tea");
+        assertThat(inMemoryUserSessionStore.findByUserId(10L).orElseThrow().getAttributes())
+            .containsEntry("catalogCategorySlug", "tea");
+    }
+
+    @Test
+    void searchResultDetailCallbackUsesBackNavigationKeyboard() {
+        when(catalogApiClient.getProducts(any(ProductFilter.class), eq(0), eq(5))).thenReturn(new PageResponse<>(
+            List.of(product(101L, "Green Tea", "green-tea", "Loose leaf tea", "Tea", "tea", new BigDecimal("4.50"))),
+            0,
+            5,
+            1,
+            1,
+            true
+        ));
+        when(catalogApiClient.getProductBySlug("green-tea")).thenReturn(
+            product(101L, "Green Tea", "green-tea", "Loose leaf tea", "Tea", "tea", new BigDecimal("4.50"))
+        );
+
+        UserSession initialSession = userSessionService.getOrCreate(10L, 20L);
+        userSessionService.transitionTo(initialSession, 20L, UserState.SEARCHING, "/search");
+        botUpdateDispatcher.dispatch(textUpdate(10L, 20L, 2, "green tea"));
+        BotApiMethod<?> response = botUpdateDispatcher.dispatch(callbackUpdate(10L, 20L, 2, "cb-3", "search:product:green-tea"));
+
+        assertThat(response).isInstanceOf(EditMessageText.class);
+        EditMessageText editMessageText = (EditMessageText) response;
+        assertThat(editMessageText.getText()).contains("Search result details").contains("Green Tea");
+        assertThat(firstCallbackData(editMessageText)).isEqualTo("search:back");
     }
 
     @Test
@@ -169,41 +187,13 @@ class BotUpdateDispatcherTests {
         BotProperties botProperties = createBotProperties();
         InMemoryUserSessionStore localStore = new InMemoryUserSessionStore();
         UserSessionService localUserSessionService = new UserSessionService(localStore, botProperties);
-        UserStateMachine userStateMachine = new UserStateMachine();
-        TelegramMessageFactory telegramMessageFactory = new TelegramMessageFactory();
-
-        CatalogIntegrationService catalogIntegrationService = new CatalogIntegrationService(catalogApiClient);
-        SearchIntegrationService searchIntegrationService = new SearchIntegrationService(searchApiClient, botProperties);
         SessionCustomerAccessTokenResolver sessionCustomerAccessTokenResolver =
             new SessionCustomerAccessTokenResolver(localStore, botProperties);
-        CartIntegrationService cartIntegrationService = new CartIntegrationService(cartApiClient, sessionCustomerAccessTokenResolver);
-        OrdersIntegrationService ordersIntegrationService =
-            new OrdersIntegrationService(ordersApiClient, sessionCustomerAccessTokenResolver, botProperties);
-        MainMenuRouteResponseService mainMenuRouteResponseService =
-            new MainMenuRouteResponseService(
-                catalogIntegrationService,
-                cartIntegrationService,
-                ordersIntegrationService,
-                botProperties
-            );
-
-        BotUpdateDispatcher localDispatcher = new BotUpdateDispatcher(
+        BotUpdateDispatcher localDispatcher = createDispatcher(
             localUserSessionService,
-            new CoreCommandRouter(localUserSessionService, telegramMessageFactory, mainMenuRouteResponseService),
-            new CallbackQueryRouter(
-                userStateMachine,
-                localUserSessionService,
-                telegramMessageFactory,
-                mainMenuRouteResponseService
-            ),
-            new TextMessageRouter(
-                userStateMachine,
-                localUserSessionService,
-                telegramMessageFactory,
-                searchIntegrationService,
-                ordersIntegrationService
-            ),
-            telegramMessageFactory
+            localStore,
+            sessionCustomerAccessTokenResolver,
+            botProperties
         );
 
         UserSession initialSession = localUserSessionService.getOrCreate(10L, 20L);
@@ -236,6 +226,69 @@ class BotUpdateDispatcherTests {
         assertThat(((SendMessage) response).getText())
             .isEqualTo("The store service is temporarily unavailable. Please try again later.")
             .doesNotContain("/api/v1/cart");
+    }
+
+    private BotUpdateDispatcher createDispatcher(
+        UserSessionService sessionService,
+        UserSessionStore sessionStore,
+        CustomerAccessTokenResolver accessTokenResolver,
+        BotProperties botProperties
+    ) {
+        UserStateMachine userStateMachine = new UserStateMachine();
+        TelegramMessageFactory telegramMessageFactory = new TelegramMessageFactory();
+
+        CatalogIntegrationService catalogIntegrationService = new CatalogIntegrationService(catalogApiClient);
+        SearchIntegrationService searchIntegrationService = new SearchIntegrationService(searchApiClient, botProperties);
+        CartIntegrationService cartIntegrationService = new CartIntegrationService(cartApiClient, accessTokenResolver);
+        OrdersIntegrationService ordersIntegrationService =
+            new OrdersIntegrationService(ordersApiClient, accessTokenResolver, botProperties);
+        CatalogBrowserService catalogBrowserService = new CatalogBrowserService(
+            catalogIntegrationService,
+            sessionService,
+            telegramMessageFactory,
+            botProperties
+        );
+        SearchFlowService searchFlowService = new SearchFlowService(
+            catalogIntegrationService,
+            searchIntegrationService,
+            sessionService,
+            telegramMessageFactory,
+            botProperties
+        );
+        MainMenuRouteResponseService mainMenuRouteResponseService =
+            new MainMenuRouteResponseService(
+                catalogIntegrationService,
+                cartIntegrationService,
+                ordersIntegrationService,
+                botProperties
+            );
+
+        return new BotUpdateDispatcher(
+            sessionService,
+            new CoreCommandRouter(
+                sessionService,
+                telegramMessageFactory,
+                mainMenuRouteResponseService,
+                catalogBrowserService,
+                searchFlowService
+            ),
+            new CallbackQueryRouter(
+                userStateMachine,
+                sessionService,
+                telegramMessageFactory,
+                mainMenuRouteResponseService,
+                catalogBrowserService,
+                searchFlowService
+            ),
+            new TextMessageRouter(
+                userStateMachine,
+                sessionService,
+                telegramMessageFactory,
+                ordersIntegrationService,
+                searchFlowService
+            ),
+            telegramMessageFactory
+        );
     }
 
     private BotProperties createBotProperties() {
@@ -272,6 +325,36 @@ class BotUpdateDispatcherTests {
 
         update.setCallbackQuery(callbackQuery);
         return update;
+    }
+
+    private ProductDto product(
+        Long id,
+        String name,
+        String slug,
+        String description,
+        String categoryName,
+        String categorySlug,
+        BigDecimal price
+    ) {
+        return new ProductDto(
+            id,
+            name,
+            slug,
+            description,
+            1L,
+            categoryName,
+            categorySlug,
+            "ACTIVE",
+            false,
+            List.of(new VariantDto(1L, "sku-" + id, name + " default", price, "USD", null, 5, Map.of(), true)),
+            List.of(),
+            List.of()
+        );
+    }
+
+    private String firstCallbackData(EditMessageText editMessageText) {
+        InlineKeyboardMarkup keyboard = (InlineKeyboardMarkup) editMessageText.getReplyMarkup();
+        return keyboard.getKeyboard().get(0).get(0).getCallbackData();
     }
 
     private static final class InMemoryUserSessionStore implements UserSessionStore {

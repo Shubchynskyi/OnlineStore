@@ -18,9 +18,19 @@ public class CallbackQueryRouter {
     private final UserSessionService userSessionService;
     private final TelegramMessageFactory telegramMessageFactory;
     private final MainMenuRouteResponseService mainMenuRouteResponseService;
+    private final CatalogBrowserService catalogBrowserService;
+    private final SearchFlowService searchFlowService;
 
     public BotApiMethod<?> route(BotUpdateContext updateContext, UserSession userSession) {
         String callbackData = updateContext.callbackData().orElse("");
+        if (callbackData.startsWith("catalog:")) {
+            return catalogBrowserService.handleCallback(updateContext, userSession);
+        }
+
+        if (callbackData.startsWith("search:")) {
+            return searchFlowService.handleCallback(updateContext, userSession);
+        }
+
         if (!callbackData.startsWith(ROUTE_PREFIX)) {
             return telegramMessageFactory.callbackNotice(
                 updateContext.callbackQueryId().orElseThrow(),
@@ -29,6 +39,13 @@ public class CallbackQueryRouter {
         }
 
         String route = callbackData.substring(ROUTE_PREFIX.length());
+        if ("catalog".equals(route)) {
+            return catalogBrowserService.openCatalog(updateContext, userSession, "callback:route:catalog");
+        }
+        if ("search".equals(route)) {
+            return searchFlowService.openPrompt(updateContext, userSession, "callback:route:search");
+        }
+
         UserState nextState = userStateMachine.resolveRoute(route).orElse(null);
         if (nextState == null) {
             return telegramMessageFactory.callbackNotice(

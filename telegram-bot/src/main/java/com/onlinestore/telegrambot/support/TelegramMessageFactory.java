@@ -1,5 +1,6 @@
 package com.onlinestore.telegrambot.support;
 
+import com.onlinestore.telegrambot.routing.BotView;
 import java.util.List;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
@@ -13,21 +14,37 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 @Component
 public class TelegramMessageFactory {
 
-    public SendMessage menuMessage(Long chatId, String text) {
+    public SendMessage message(Long chatId, BotView botView) {
+        return message(chatId, botView.text(), botView.keyboard());
+    }
+
+    public SendMessage message(Long chatId, String text, InlineKeyboardMarkup keyboard) {
         return SendMessage.builder()
             .chatId(chatId.toString())
             .text(text)
-            .replyMarkup(mainMenuKeyboard())
+            .replyMarkup(keyboard)
             .build();
     }
 
-    public EditMessageText editMenuMessage(Long chatId, Integer messageId, String text) {
+    public SendMessage menuMessage(Long chatId, String text) {
+        return message(chatId, text, mainMenuKeyboard());
+    }
+
+    public EditMessageText editMessage(Long chatId, Integer messageId, BotView botView) {
+        return editMessage(chatId, messageId, botView.text(), botView.keyboard());
+    }
+
+    public EditMessageText editMessage(Long chatId, Integer messageId, String text, InlineKeyboardMarkup keyboard) {
         return EditMessageText.builder()
             .chatId(chatId.toString())
             .messageId(messageId)
             .text(text)
-            .replyMarkup(mainMenuKeyboard())
+            .replyMarkup(keyboard)
             .build();
+    }
+
+    public EditMessageText editMenuMessage(Long chatId, Integer messageId, String text) {
+        return editMessage(chatId, messageId, text, mainMenuKeyboard());
     }
 
     public AnswerCallbackQuery callbackNotice(String callbackQueryId, String text) {
@@ -52,7 +69,7 @@ public class TelegramMessageFactory {
         return callbackNotice(callbackQueryId, "The action failed. Please try again.");
     }
 
-    private InlineKeyboardMarkup mainMenuKeyboard() {
+    public InlineKeyboardMarkup mainMenuKeyboard() {
         return InlineKeyboardMarkup.builder()
             .keyboard(List.of(
                 new InlineKeyboardRow(
@@ -70,7 +87,13 @@ public class TelegramMessageFactory {
             .build();
     }
 
-    private InlineKeyboardButton callbackButton(String text, String callbackData) {
+    public InlineKeyboardMarkup keyboard(List<InlineKeyboardRow> rows) {
+        return InlineKeyboardMarkup.builder()
+            .keyboard(rows)
+            .build();
+    }
+
+    public InlineKeyboardButton callbackButton(String text, String callbackData) {
         return InlineKeyboardButton.builder()
             .text(text)
             .callbackData(callbackData)

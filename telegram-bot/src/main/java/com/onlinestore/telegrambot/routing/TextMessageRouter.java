@@ -2,17 +2,13 @@ package com.onlinestore.telegrambot.routing;
 
 import com.onlinestore.telegrambot.integration.BackendAuthenticationRequiredException;
 import com.onlinestore.telegrambot.integration.BackendApiException;
-import com.onlinestore.telegrambot.integration.dto.PageResponse;
 import com.onlinestore.telegrambot.integration.dto.orders.OrderDto;
-import com.onlinestore.telegrambot.integration.dto.search.ProductSearchResult;
 import com.onlinestore.telegrambot.integration.service.OrdersIntegrationService;
-import com.onlinestore.telegrambot.integration.service.SearchIntegrationService;
 import com.onlinestore.telegrambot.session.UserSession;
 import com.onlinestore.telegrambot.session.UserSessionService;
 import com.onlinestore.telegrambot.session.UserState;
 import com.onlinestore.telegrambot.support.TelegramMessageFactory;
 import java.math.BigDecimal;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.botapimethods.BotApiMethod;
@@ -24,12 +20,12 @@ public class TextMessageRouter {
     private final UserStateMachine userStateMachine;
     private final UserSessionService userSessionService;
     private final TelegramMessageFactory telegramMessageFactory;
-    private final SearchIntegrationService searchIntegrationService;
     private final OrdersIntegrationService ordersIntegrationService;
+    private final SearchFlowService searchFlowService;
 
     public BotApiMethod<?> route(BotUpdateContext updateContext, UserSession userSession) {
         if (userSession.getState() == UserState.SEARCHING) {
-            return handleSearch(updateContext, userSession);
+            return searchFlowService.handleSearchInput(updateContext, userSession);
         }
 
         if (userSession.getState() == UserState.TRACKING_ORDER) {
@@ -55,21 +51,6 @@ public class TextMessageRouter {
             ));
     }
 
-    private BotApiMethod<?> handleSearch(BotUpdateContext updateContext, UserSession userSession) {
-        String query = updateContext.messageText().orElse("");
-        userSessionService.rememberInput(userSession, updateContext.getChatId(), "searchQuery", query);
-
-        try {
-            PageResponse<ProductSearchResult> searchResults = searchIntegrationService.searchProducts(query);
-            return telegramMessageFactory.menuMessage(
-                updateContext.getChatId(),
-                buildSearchResultsMessage(query, searchResults)
-            );
-        } catch (BackendApiException ex) {
-            return telegramMessageFactory.menuMessage(updateContext.getChatId(), ex.getMessage());
-        }
-    }
-
     private BotApiMethod<?> handleOrderLookup(BotUpdateContext updateContext, UserSession userSession) {
         String orderReference = updateContext.messageText().orElse("");
         userSessionService.rememberInput(userSession, updateContext.getChatId(), "orderReference", orderReference);
@@ -92,34 +73,11 @@ public class TextMessageRouter {
         }
     }
 
-    private String buildSearchResultsMessage(String query, PageResponse<ProductSearchResult> searchResults) {
-        List<ProductSearchResult> content = searchResults.content() == null ? List.of() : searchResults.content();
-        if (content.isEmpty()) {
-            return "Search integration is active, but no products matched \"" + query + "\".";
-        }
-
-        String resultLines = content.stream()
-            .limit(5)
-            .map(this::searchResultLine)
-            .reduce((left, right) -> left + "\n" + right)
-            .orElse("");
-
-        return "Search integration is active.\nTop results for \"" + query + "\":\n"
-            + resultLines
-            + "\nInline product cards arrive in T-004.";
-    }
-
     private String buildOrderLookupMessage(OrderDto order) {
         return "Order #" + order.id()
             + "\nStatus: " + valueOrDash(order.status())
             + "\nTotal: " + formatAmount(order.totalAmount()) + " " + valueOrDash(order.totalCurrency())
             + "\nCreated at: " + order.createdAt();
-    }
-
-    private String searchResultLine(ProductSearchResult productSearchResult) {
-        return "- " + valueOrDash(productSearchResult.name())
-            + " (" + valueOrDash(productSearchResult.category()) + ")"
-            + " from " + formatAmount(productSearchResult.minPrice());
     }
 
     private String formatAmount(BigDecimal amount) {

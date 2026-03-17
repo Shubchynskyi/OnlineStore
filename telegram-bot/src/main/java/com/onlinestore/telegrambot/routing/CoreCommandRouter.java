@@ -15,35 +15,35 @@ public class CoreCommandRouter {
     private final UserSessionService userSessionService;
     private final TelegramMessageFactory telegramMessageFactory;
     private final MainMenuRouteResponseService mainMenuRouteResponseService;
+    private final CatalogBrowserService catalogBrowserService;
+    private final SearchFlowService searchFlowService;
 
     public BotApiMethod<?> route(BotUpdateContext updateContext, UserSession userSession) {
         String command = updateContext.command()
             .orElseThrow(() -> new IllegalArgumentException("Command routing requires a normalized command"));
 
-        UserState targetState = switch (command) {
-            case "start" -> UserState.MAIN_MENU;
-            case "catalog" -> UserState.BROWSING_CATALOG;
-            case "search" -> UserState.SEARCHING;
-            case "cart" -> UserState.VIEWING_CART;
-            case "order" -> UserState.TRACKING_ORDER;
-            default -> null;
-        };
-
-        if (targetState == null) {
-            return telegramMessageFactory.menuMessage(
+        return switch (command) {
+            case "start" -> routeToMenu(updateContext, userSession, UserState.MAIN_MENU, "/" + command, command);
+            case "catalog" -> catalogBrowserService.openCatalog(updateContext, userSession, "/" + command);
+            case "search" -> searchFlowService.openPrompt(updateContext, userSession, "/" + command);
+            case "cart" -> routeToMenu(updateContext, userSession, UserState.VIEWING_CART, "/" + command, command);
+            case "order" -> routeToMenu(updateContext, userSession, UserState.TRACKING_ORDER, "/" + command, command);
+            default -> telegramMessageFactory.menuMessage(
                 updateContext.getChatId(),
                 "Unknown command. Supported commands are /start, /catalog, /search, /cart, and /order."
             );
-        }
+        };
+    }
 
-        userSessionService.transitionTo(
-            userSession,
-            updateContext.getChatId(),
-            targetState,
-            "/" + command
-        );
-
-        String responseText = mainMenuRouteResponseService.responseForRoute(command, updateContext.getUserId());
+    private BotApiMethod<?> routeToMenu(
+        BotUpdateContext updateContext,
+        UserSession userSession,
+        UserState targetState,
+        String lastCommand,
+        String route
+    ) {
+        userSessionService.transitionTo(userSession, updateContext.getChatId(), targetState, lastCommand);
+        String responseText = mainMenuRouteResponseService.responseForRoute(route, updateContext.getUserId());
         return telegramMessageFactory.menuMessage(updateContext.getChatId(), responseText);
     }
 }
